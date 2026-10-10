@@ -121,3 +121,19 @@ def test_admin_invites_and_disables(anon, alice, client_factory, fake_google):
 def test_csrf_is_required(alice):
     r = alice.post("/uj", data={"url": "https://youtu.be/dQw4w9WgXcQ", "mode": "captions"})
     assert r.status_code == 403
+
+
+def test_a_callback_link_from_another_browser_is_refused(client_factory, fake_google):
+    """Login CSRF: an attacker starts a sign-in with his own account and sends the callback link."""
+    from urllib.parse import parse_qs, urlsplit
+    token = _invite("attacker@example.com")
+    attacker, victim = client_factory(), client_factory()
+    r = attacker.get(f"/auth/google/start?meghivo={token}")
+    q = parse_qs(urlsplit(r.headers["location"]).query)
+    fake_google.codes["evil"] = {"challenge": q["code_challenge"][0], "nonce": q["nonce"][0],
+                                 "claims": {"sub": "sub-att", "email": "attacker@example.com", "email_verified": True}}
+    r = victim.get(f"/auth/google/callback?state={q['state'][0]}&code=evil")
+    assert r.status_code == 403 and "ebben a böngészőben" in r.text
+    assert "dwyt_session" not in r.cookies
+    # the state is used up: the attacker cannot finish it either
+    assert attacker.get(f"/auth/google/callback?state={q['state'][0]}&code=evil").status_code == 403

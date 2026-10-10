@@ -50,8 +50,9 @@ def _b64url(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
 
 
-def start(db: DbSession, settings: Settings, invite_token: str | None) -> str:
-    """Remember state, nonce and PKCE verifier; return Google's authorization URL."""
+def start(db: DbSession, settings: Settings, invite_token: str | None) -> tuple[str, str]:
+    """Remember state, nonce and PKCE verifier; return Google's authorization URL and the state
+    (the caller also puts the state in a cookie, binding the sign-in to this browser)."""
     if not settings.google_client_id:
         raise SignInError("A Google-belépés nincs beállítva (GOOGLE_CLIENT_ID).")
     state, nonce, verifier = new_token(), new_token(), new_token(48)
@@ -62,7 +63,7 @@ def start(db: DbSession, settings: Settings, invite_token: str | None) -> str:
     params = {"client_id": settings.google_client_id, "redirect_uri": settings.redirect_uri,
               "response_type": "code", "scope": "openid email profile", "state": state, "nonce": nonce,
               "code_challenge": challenge, "code_challenge_method": "S256", "prompt": "select_account"}
-    return f"{settings.google_auth_url}?{urlencode(params)}"
+    return f"{settings.google_auth_url}?{urlencode(params)}", state
 
 
 def _claims(id_token: str) -> dict:
@@ -73,13 +74,21 @@ def _claims(id_token: str) -> dict:
         raise SignInError("A Google válasza nem értelmezhető.") from exc
 
 
-def finish(db: DbSession, settings: Settings, state: str, code: str) -> tuple[GoogleIdentity, str | None]:
-    """Check the state, exchange the code, verify the ID token. Returns the identity and the
-    hash of the invitation token the sign-in started with (if any)."""
+def consume_state(db: DbSession, state: str) -> LoginState:
+    """Take the sign-in state out of the database (one use only, also when the sign-in fails)."""
     login = db.get(LoginState, token_hash(state or "")) if state and len(state) < 200 else None
     if login is None:
         raise SignInError("A belépés lejárt vagy érvénytelen. Kezdd újra.")
+    copy = LoginState(state_hash=login.state_hash, nonce=login.nonce, verifier=login.verifier,
+                      invite_token_hash=login.invite_token_hash, created_at=login.created_at)
     db.delete(login)
+    db.flush()
+    return copy
+
+
+def finish(login: LoginState, settings: Settings, code: str) -> tuple[GoogleIdentity, str | None]:
+    """Exchange the code, verify the ID token. Returns the identity and the hash of the
+    invitation token the sign-in started with (if any)."""
     if (utcnow() - login.created_at) > timedelta(minutes=STATE_MINUTES):
         raise SignInError("A belépés lejárt. Kezdd újra.")
     try:

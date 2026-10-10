@@ -151,3 +151,14 @@ def test_submit_validation(alice):
     assert r.status_code == 422 and "csak YouTube-videóhoz" in r.text
     r = post(alice, "/uj", {"url": "ftp://x", "mode": "captions"})
     assert r.status_code == 422
+
+
+def test_oversized_runner_fields_are_refused(alice, anon):
+    token = pair_runner(alice, anon)
+    caps = {**CAPS, "allowed_domains": ["x" * 300]}
+    assert claim(anon, token, caps).status_code == 422
+    _submit(alice, summarize=False)
+    job = claim(anon, token).json()
+    r = anon.post(f"/runner/v1/jobs/{job['job_id']}/heartbeat", json={"progress": {"x": "y" * 5000}},
+                  headers=runner_headers(token))
+    assert r.status_code == 422

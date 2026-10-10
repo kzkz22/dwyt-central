@@ -212,15 +212,22 @@ def invite_page(request: Request, token: str):
     return _render(request, "invite.html", email=email, token=token)
 
 
+LOGIN_COOKIE = "dwyt_signin"
+
+
 @app.get("/auth/google/start")
 def google_start(meghivo: str = ""):
     settings = get_settings()
     try:
         with db.system_session() as s:
-            url = accounts.start(s, settings, meghivo[:100] or None)
+            url, state = accounts.start(s, settings, meghivo[:100] or None)
     except accounts.SignInError as exc:
         return _redirect(f"/belepes?hiba={exc}")
-    return RedirectResponse(url, status_code=302)
+    response = RedirectResponse(url, status_code=302)
+    # binds the sign-in to this browser: a callback link made in another browser is refused
+    response.set_cookie(LOGIN_COOKIE, state, max_age=accounts.STATE_MINUTES * 60, httponly=True, samesite="lax",
+                        secure=settings.cookie_secure, path="/auth/google")
+    return response
 
 
 @app.get("/auth/google/callback")
@@ -229,21 +236,29 @@ async def google_callback(request: Request, state: str = "", code: str = "", err
     if error or not code:
         return _message(request, None, "A belépés nem sikerült", "A Google-belépést megszakítottad vagy "
                         "a Google elutasította. Próbáld újra.", "/belepes", 400)
+    browser_state = request.cookies.get(LOGIN_COOKIE, "")
 
     def sign_in() -> str:
+        with db.system_session() as s:  # consumed even when the rest fails
+            login = accounts.consume_state(s, state)
+        if not browser_state or not secrets.compare_digest(browser_state, state):
+            raise accounts.SignInError("A belépést ebben a böngészőben kell elkezdeni. Kezdd újra.")
+        who, invite_hash = accounts.finish(login, settings, code)
         with db.system_session() as s:
-            who, invite_hash = accounts.finish(s, settings, state, code)
-        with db.system_session() as s:  # a failed check above still consumed the state
             user = accounts.resolve_user(s, settings, who, invite_hash)
             security.record_success(user)
+            security.purge_expired(s)
             return security.start_session(s, user, "active", settings.session_days, _client_ip(request),
                                           request.headers.get("user-agent"))
 
     try:
         token = await run_in_threadpool(sign_in)
     except accounts.SignInError as exc:
-        return _message(request, None, "A belépés nem sikerült", str(exc), "/belepes", 403)
+        response = _message(request, None, "A belépés nem sikerült", str(exc), "/belepes", 403)
+        response.delete_cookie(LOGIN_COOKIE, path="/auth/google")
+        return response
     response = _redirect("/")
+    response.delete_cookie(LOGIN_COOKIE, path="/auth/google")
     _set_cookie(response, token, settings, int(settings.session_days * 86400))
     return response
 

@@ -9,11 +9,11 @@ import asyncio
 import secrets
 import time
 from datetime import timedelta
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import JSONResponse, Response
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, StringConstraints, ValidationError, field_validator
 from sqlalchemy import select
 from starlette.concurrency import run_in_threadpool
 
@@ -26,6 +26,8 @@ from .security import new_token, token_hash
 PROTOCOL = 1
 SUPPORTED = {PROTOCOL}  # the current and the previous version once there is one
 PAIR_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+MAX_PENDING_PAIRINGS = 1000
+Short = Annotated[str, StringConstraints(max_length=253)]
 
 router = APIRouter(prefix="/runner/v1")
 
@@ -91,10 +93,12 @@ def normalise_code(code: str) -> str:
 async def pair_start(_v: int = Depends(check_version)):
     settings = get_settings()
 
-    def create() -> dict:
+    def create() -> dict | None:
         poll = new_token()
         with db.system_session() as s:
             s.query(PairRequest).filter(PairRequest.expires_at < utcnow()).delete()
+            if s.query(PairRequest).count() >= MAX_PENDING_PAIRINGS:
+                return None
             for _ in range(5):
                 code = _pair_code()
                 if s.scalar(select(PairRequest.id).where(PairRequest.code == code)) is None:
@@ -103,7 +107,10 @@ async def pair_start(_v: int = Depends(check_version)):
                               expires_at=utcnow() + timedelta(minutes=settings.pair_minutes)))
         return {"code": code, "poll_id": poll, "expires_in": settings.pair_minutes * 60}
 
-    return await run_in_threadpool(create)
+    created = await run_in_threadpool(create)
+    if created is None:
+        return _error(429, "Túl sok függő párosítás; próbáld később.")
+    return created
 
 
 class PairPoll(BaseModel):
@@ -151,7 +158,7 @@ class Capabilities(BaseModel):
     kinds: list[Literal["transcribe", "summarize"]] = []
     transcribe_modes: list[Literal["captions", "cloud", "local"]] = []
     llm_roles: list[Literal["public", "private"]] = []
-    allowed_domains: list[str] = Field(default_factory=list, max_length=100)
+    allowed_domains: list[Short] = Field(default_factory=list, max_length=100)
     max_upload_bytes: int | None = None
     local_sources: bool = False
 
@@ -159,7 +166,8 @@ class Capabilities(BaseModel):
 class ClaimBody(BaseModel):
     capabilities: Capabilities
     runner_version: str | None = Field(default=None, max_length=40)
-    tool_versions: dict[str, str] = Field(default_factory=dict, max_length=20)
+    tool_versions: dict[Annotated[str, StringConstraints(max_length=40)],
+                        Annotated[str, StringConstraints(max_length=40)]] = Field(default_factory=dict, max_length=20)
 
 
 def _claim_once(runner: Runner, body: ClaimBody, version: int) -> dict | None:
@@ -191,6 +199,14 @@ async def claim(body: ClaimBody, runner: Runner = Depends(current_runner), versi
 class HeartbeatBody(BaseModel):
     stage: str | None = Field(default=None, max_length=40)
     progress: dict[str, Any] | None = None
+
+    @field_validator("progress")
+    @classmethod
+    def _small(cls, value):
+        import json
+        if value is not None and len(json.dumps(value)) > 4000:
+            raise ValueError("progress too large")
+        return value
 
 
 def _protocol_call(fn, *args):
