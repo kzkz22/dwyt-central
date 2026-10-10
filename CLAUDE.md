@@ -13,7 +13,7 @@ License: AGPL-3.0.
 
 - The owner writes in Hungarian. User-facing docs (`README.md`, `docs/`) and any UI are Hungarian;
   code, comments and this file are English.
-- The plan and the decision log live in `dwyt-docs` (`docs/terv.md`, section 20). Read the relevant
+- The plan and the decision log live in `dwyt-docs` (`docs/terv.md`, section 21). Read the relevant
   sections before changing anything; when a decision changes, update it there in the same piece of work.
 - The central–runner protocol is specified in `dwyt-docs/docs/protokoll.md`; both sides follow it.
 - Never commit tokens or keys (API keys, OAuth secrets, runner/MCP tokens). Secrets live in env files or
