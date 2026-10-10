@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Könyvtár{% endblock %}
+{% block content %}
+<div class="bar"><h1>Könyvtár</h1><a class="button" href="/uj">Új átirat</a></div>
+{% if not has_runner %}
+<p class="warn-box">Még nincs futtatód. A munkákat a saját futtatód végzi el: <a href="/futtatok">futtató párosítása</a>.</p>
+{% endif %}
+{% if items %}
+<ul class="items">
+{% for item in items %}
+  <li class="item">
+    <a class="thumb" href="/elem/{{ item.id }}">{% if thumb(item.source) %}<img src="{{ thumb(item.source) }}" alt="" loading="lazy">{% else %}<span class="nothumb">nincs kép</span>{% endif %}</a>
+    <div>
+      <a class="title" href="/elem/{{ item.id }}">{{ item_title(item) }}</a>
+      <div class="meta">
+        {% if item.source.meta.channel %}{{ item.source.meta.channel }} · {% endif %}
+        {% if item.source.meta.duration_s %}{{ hms(item.source.meta.duration_s) }} · {% endif %}
+        {{ item.created_at|local }}
+        {% if item.id in active %}<span class="badge warn">folyamatban</span>{% endif %}
+        {% if item.current_summary_id %}<span class="badge">összefoglaló</span>{% endif %}
+      </div>
+    </div>
+  </li>
+{% endfor %}
+</ul>
+{% if pages > 1 %}
+<p class="actions">{% if page > 1 %}<a href="/?oldal={{ page - 1 }}">Előző</a>{% endif %}
+<span class="muted">{{ page }}. oldal / {{ pages }}</span>
+{% if page < pages %}<a href="/?oldal={{ page + 1 }}">Következő</a>{% endif %}</p>
+{% endif %}
+{% else %}
+<p class="muted">A könyvtár még üres.</p>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,296 @@
+"""The runner protocol: /runner/v1/... (dwyt-docs/docs/protokoll.md).
+
+Runners always call in; the central service never calls a runner. Every request carries the
+`Dwyt-Protocol` header; authenticated requests carry `Authorization: Bearer <runner token>`.
+"""
+from __future__ import annotations
+
+import asyncio
+import secrets
+import time
+from datetime import timedelta
+from typing import Any, Literal
+
+from fastapi import APIRouter, Depends, Header, Request
+from fastapi.responses import JSONResponse, Response
+from pydantic import BaseModel, Field, ValidationError
+from sqlalchemy import select
+from starlette.concurrency import run_in_threadpool
+
+from . import db, jobs
+from .config import get_settings
+from .db import utcnow
+from .models import Job, PairRequest, Runner, User
+from .security import new_token, token_hash
+
+PROTOCOL = 1
+SUPPORTED = {PROTOCOL}  # the current and the previous version once there is one
+PAIR_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+router = APIRouter(prefix="/runner/v1")
+
+
+class ProtocolMismatch(Exception):
+    pass
+
+
+def check_version(dwyt_protocol: str | None = Header(default=None)) -> int:
+    try:
+        version = int(dwyt_protocol or "")
+    except ValueError:
+        raise ProtocolMismatch() from None
+    if version not in SUPPORTED:
+        raise ProtocolMismatch()
+    return version
+
+
+def _error(status: int, message: str) -> JSONResponse:
+    return JSONResponse({"error": message}, status_code=status)
+
+
+def _authenticate(token: str) -> Runner | None:
+    with db.system_session() as s:
+        runner = s.scalar(select(Runner).where(Runner.token_hash == token_hash(token)))
+        if runner is None or runner.revoked_at is not None:
+            return None
+        user = s.get(User, runner.user_id)
+        if user is None or user.disabled:
+            return None
+        if runner.last_seen_at is None or (utcnow() - runner.last_seen_at).total_seconds() > 10:
+            runner.last_seen_at = utcnow()
+        s.expunge(runner)
+        return runner
+
+
+async def current_runner(request: Request, _v: int = Depends(check_version)) -> Runner:
+    auth = request.headers.get("authorization", "")
+    token = auth[7:].strip() if auth[:7].lower() == "bearer " else ""
+    runner = await run_in_threadpool(_authenticate, token) if token and len(token) < 200 else None
+    if runner is None:
+        raise RunnerUnauthorized()
+    return runner
+
+
+class RunnerUnauthorized(Exception):
+    pass
+
+
+# ---- pairing ------------------------------------------------------------------------------
+
+def _pair_code() -> str:
+    raw = "".join(secrets.choice(PAIR_ALPHABET) for _ in range(6))
+    return f"{raw[:3]}-{raw[3:]}"
+
+
+def normalise_code(code: str) -> str:
+    raw = "".join(ch for ch in (code or "").upper() if ch in PAIR_ALPHABET)
+    return f"{raw[:3]}-{raw[3:6]}" if len(raw) == 6 else ""
+
+
+@router.post("/pair/start")
+async def pair_start(_v: int = Depends(check_version)):
+    settings = get_settings()
+
+    def create() -> dict:
+        poll = new_token()
+        with db.system_session() as s:
+            s.query(PairRequest).filter(PairRequest.expires_at < utcnow()).delete()
+            for _ in range(5):
+                code = _pair_code()
+                if s.scalar(select(PairRequest.id).where(PairRequest.code == code)) is None:
+                    break
+            s.add(PairRequest(code=code, poll_hash=token_hash(poll),
+                              expires_at=utcnow() + timedelta(minutes=settings.pair_minutes)))
+        return {"code": code, "poll_id": poll, "expires_in": settings.pair_minutes * 60}
+
+    return await run_in_threadpool(create)
+
+
+class PairPoll(BaseModel):
+    poll_id: str = Field(min_length=10, max_length=200)
+
+
+@router.post("/pair/poll")
+async def pair_poll(body: PairPoll, _v: int = Depends(check_version)):
+    def poll() -> tuple[int, dict]:
+        with db.system_session() as s:
+            req = s.scalar(select(PairRequest).where(PairRequest.poll_hash == token_hash(body.poll_id))
+                           .with_for_update())
+            if req is None or req.expires_at <= utcnow():
+                return 410, {"error": "A párosítókód lejárt; indítsd újra a párosítást."}
+            if req.approved_at is None or req.user_id is None:
+                return 202, {"status": "pending"}
+            token = new_token()
+            runner = Runner(user_id=req.user_id, name=req.runner_name or "futtató", token_hash=token_hash(token),
+                            capabilities={})
+            s.add(runner)
+            s.delete(req)
+            s.flush()
+            return 200, {"runner_id": runner.id, "name": runner.name, "token": token}
+
+    status, data = await run_in_threadpool(poll)
+    return JSONResponse(data, status_code=status)
+
+
+def approve_pairing(user_id: int, code: str, name: str) -> bool:
+    """Called from the web UI by the signed-in user who typed the code."""
+    code = normalise_code(code)
+    if not code:
+        return False
+    with db.system_session() as s:
+        req = s.scalar(select(PairRequest).where(PairRequest.code == code).with_for_update())
+        if req is None or req.expires_at <= utcnow() or req.approved_at is not None:
+            return False
+        req.user_id, req.runner_name, req.approved_at = user_id, (name.strip() or "futtató")[:80], utcnow()
+        return True
+
+
+# ---- jobs ---------------------------------------------------------------------------------
+
+class Capabilities(BaseModel):
+    kinds: list[Literal["transcribe", "summarize"]] = []
+    transcribe_modes: list[Literal["captions", "cloud", "local"]] = []
+    llm_roles: list[Literal["public", "private"]] = []
+    allowed_domains: list[str] = Field(default_factory=list, max_length=100)
+    max_upload_bytes: int | None = None
+    local_sources: bool = False
+
+
+class ClaimBody(BaseModel):
+    capabilities: Capabilities
+    runner_version: str | None = Field(default=None, max_length=40)
+    tool_versions: dict[str, str] = Field(default_factory=dict, max_length=20)
+
+
+def _claim_once(runner: Runner, body: ClaimBody, version: int) -> dict | None:
+    settings = get_settings()
+    caps = body.capabilities.model_dump()
+    with db.system_session() as s:
+        r = s.get(Runner, runner.id)
+        r.capabilities = {**caps, "tool_versions": body.tool_versions}
+        r.version, r.protocol, r.last_seen_at = body.runner_version, version, utcnow()
+        job = jobs.claim(s, r, caps, settings)
+        if job is None:
+            return None
+        return {"job_id": job.id, "kind": job.kind, "lease_s": settings.lease_s, "input": jobs.job_input(s, job)}
+
+
+@router.post("/claim")
+async def claim(body: ClaimBody, runner: Runner = Depends(current_runner), version: int = Depends(check_version)):
+    settings = get_settings()
+    deadline = time.monotonic() + settings.claim_wait_s
+    while True:
+        found = await run_in_threadpool(_claim_once, runner, body, version)
+        if found is not None:
+            return found
+        if time.monotonic() + settings.claim_poll_s > deadline:
+            return Response(status_code=204)
+        await asyncio.sleep(settings.claim_poll_s)
+
+
+class HeartbeatBody(BaseModel):
+    stage: str | None = Field(default=None, max_length=40)
+    progress: dict[str, Any] | None = None
+
+
+def _protocol_call(fn, *args):
+    try:
+        with db.system_session() as s:
+            return 200, fn(s, *args)
+    except jobs.ProtocolError as exc:
+        return exc.status, {"error": str(exc)}
+
+
+@router.post("/jobs/{job_id}/heartbeat")
+async def heartbeat(job_id: int, body: HeartbeatBody, runner: Runner = Depends(current_runner)):
+    status, data = await run_in_threadpool(_protocol_call, jobs.heartbeat, runner, job_id, body.stage,
+                                           body.progress, get_settings())
+    return JSONResponse(data, status_code=status)
+
+
+class FailBody(BaseModel):
+    error: str = Field(max_length=4000)
+    retry: Literal["later", "never", "next_step"] = "never"
+
+
+@router.post("/jobs/{job_id}/fail")
+async def fail(job_id: int, body: FailBody, runner: Runner = Depends(current_runner)):
+    retry = "never" if body.retry == "next_step" else body.retry  # no chains before round 4
+    status, data = await run_in_threadpool(
+        _protocol_call, lambda s, *a: jobs.fail(s, *a) or {"ok": True}, runner, job_id, body.error, retry,
+        get_settings())
+    return JSONResponse(data, status_code=status)
+
+
+# result shapes
+
+class SegmentIn(BaseModel):
+    start: float = Field(ge=0)
+    end: float = Field(ge=0)
+    speaker: str | None = Field(default=None, max_length=100)
+    text: str = Field(max_length=20000)
+
+
+class SpeakerIn(BaseModel):
+    label: str = Field(max_length=100)
+    share: float | None = None
+
+
+class TranscriptIn(BaseModel):
+    mode: Literal["captions", "cloud", "local"]
+    model: str | None = Field(default=None, max_length=100)
+    caption_kind: Literal["manual", "auto"] | None = None
+    language: str | None = Field(default=None, max_length=20)
+    diarized: bool = False
+    speakers: list[SpeakerIn] = Field(default_factory=list, max_length=100)
+    warnings: list[str] = Field(default_factory=list, max_length=20)
+    cloud: dict[str, Any] | None = None
+    elapsed_s: float | None = None
+    segments: list[SegmentIn] = Field(min_length=1, max_length=200000)
+
+
+class VideoIn(BaseModel):
+    title: str | None = Field(default=None, max_length=500)
+    channel: str | None = Field(default=None, max_length=300)
+    duration_s: int | None = Field(default=None, ge=0)
+    published: str | None = Field(default=None, max_length=20)
+
+
+class TranscribeResult(BaseModel):
+    video: VideoIn = Field(default_factory=VideoIn)
+    transcript: TranscriptIn
+
+
+class SummaryResult(BaseModel):
+    text: str = Field(min_length=1, max_length=200000)
+    model: str | None = Field(default=None, max_length=200)
+    model_used: str | None = Field(default=None, max_length=200)
+    language: str = Field(default="hu", max_length=20)
+    prompt_version: int = 0
+    chunked: bool = False
+    input_chars: int = 0
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    reasoning_tokens: int | None = None
+    duration_s: float | None = None
+
+
+def _job_kind(runner: Runner, job_id: int) -> str | None:
+    with db.system_session() as s:
+        job = s.get(Job, job_id)
+        return job.kind if job is not None and job.user_id == runner.user_id else None
+
+
+@router.put("/jobs/{job_id}/result")
+async def result(job_id: int, request: Request, runner: Runner = Depends(current_runner)):
+    kind = await run_in_threadpool(_job_kind, runner, job_id)
+    if kind is None:
+        return _error(404, "no such job")
+    try:
+        raw = await request.json()
+        model = (TranscribeResult if kind == "transcribe" else SummaryResult).model_validate(raw)
+    except (ValueError, ValidationError) as exc:
+        return _error(422, f"invalid result: {str(exc)[:1000]}")
+    status, data = await run_in_threadpool(_protocol_call, jobs.store_result, runner, job_id,
+                                           model.model_dump())
+    return JSONResponse(data, status_code=status)

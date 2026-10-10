@@ -1,0 +1,29 @@
+{% if runner_count == 0 %}
+<p class="warn-box">Nincs párosított futtatód, ezért a munkák nem indulnak el. <a href="/futtatok">Futtató párosítása</a></p>
+{% elif online_count == 0 and active %}
+<p class="warn-box">Egyik futtatód sem jelentkezett az utóbbi időben; a munkák várnak, amíg el nem indul.</p>
+{% endif %}
+<h2>Folyamatban</h2>
+{% if active %}
+<ul class="jobs">
+{% for job in active %}
+  <li class="card">
+    <div class="bar"><span><strong>{{ 'Átírás' if job.kind == 'transcribe' else 'Összefoglaló' }}</strong> · {% if job.item_id %}<a href="/elem/{{ job.item_id }}">{{ job.title or ('#' ~ job.id) }}</a>{% else %}{{ job.title }}{% endif %}</span>
+    <form method="post" action="/munkak/{{ job.id }}/megszakitas" class="inline"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="secondary small">Megszakítás</button></form></div>
+    <div class="meta">{{ state_labels[job.state] }}{% if job.state == 'running' and job.stage %} – {{ stage_label(job.stage) }}{% endif %}{% if job.cancel_requested %} (megszakítás kérve){% endif %}{% if job.error %} · {{ job.error }}{% endif %}{% if job.state == 'queued' and job.attempts %} · újrapróbálás: {{ job.run_after|local }}{% endif %}</div>
+  </li>
+{% endfor %}
+</ul>
+{% else %}<p class="muted">Nincs futó vagy várakozó munka.</p>{% endif %}
+<h2>Legutóbbiak</h2>
+{% if recent %}
+<ul class="jobs">
+{% for job in recent %}
+  <li class="card">
+    <div class="bar"><span><strong>{{ 'Átírás' if job.kind == 'transcribe' else 'Összefoglaló' }}</strong> · {% if job.item_id %}<a href="/elem/{{ job.item_id }}">{{ job.title or ('#' ~ job.id) }}</a>{% else %}{{ job.title }}{% endif %}</span>
+    {% if job.state in ('failed', 'cancelled') %}<form method="post" action="/munkak/{{ job.id }}/ujra" class="inline"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="secondary small">Újra</button></form>{% endif %}</div>
+    <div class="meta">{{ state_labels[job.state] }} · {{ job.finished_at|local }}{% if job.error %} · <span class="error-text">{{ job.error }}</span>{% endif %}</div>
+  </li>
+{% endfor %}
+</ul>
+{% else %}<p class="muted">Még nincs befejezett munka.</p>{% endif %}

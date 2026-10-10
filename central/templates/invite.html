@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Meghívó{% endblock %}
+{% block content %}
+<section class="login card">
+  <h1>Meghívó</h1>
+  <p>Meghívást kaptál ide ezzel a címmel: <strong>{{ email }}</strong>.</p>
+  <p>Lépj be azzal a Google-fiókkal, amelyikhez ez az e-mail-cím tartozik.</p>
+  <p><a class="button" href="/auth/google/start?meghivo={{ token|urlencode }}">Belépés Google-lel</a></p>
+</section>
+{% endblock %}

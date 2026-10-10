@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Futtatók{% endblock %}
+{% block content %}
+<h1>Futtatók</h1>
+<p class="muted">A futtató a saját gépeden vagy VPS-eden végzi el a munkát (letöltés, felirat, átírás, összefoglaló); a kulcsaid nála maradnak.</p>
+{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+{% if notice %}<p class="warn-box" role="status">{{ notice }}</p>{% endif %}
+<section class="card">
+  <h2>Új futtató párosítása</h2>
+  <ol>
+    <li>Telepítés: <code>uv tool install git+https://github.com/kzkz22/dwyt-runner</code></li>
+    <li>Párosítás: <code>dwyt-runner pair {{ base_url }}</code> – a futtató kiír egy kódot.</li>
+    <li>Írd be ide a kódot, és adj nevet a futtatónak:</li>
+  </ol>
+  <form method="post" action="/futtatok/parositas" class="grid">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <label>Párosítókód <input name="code" placeholder="ABC-123" maxlength="12" required autocomplete="off"></label>
+    <label>Név <input name="name" placeholder="otthoni gép" maxlength="80"></label>
+    <p><button>Jóváhagyás</button></p>
+  </form>
+</section>
+<h2>Párosított futtatók</h2>
+{% if runners %}
+<ul class="jobs">
+{% for r in runners %}
+  <li class="card">
+    <div class="bar"><span><strong>{{ r.name }}</strong>
+      {% if r.revoked_at %}<span class="badge">visszavonva</span>{% elif r.id in online %}<span class="badge cloud">elérhető</span>{% else %}<span class="badge warn">nem jelentkezik</span>{% endif %}</span>
+    {% if not r.revoked_at %}<form method="post" action="/futtatok/{{ r.id }}/visszavonas" class="inline confirm" data-confirm="Visszavonod ezt a futtatót? Utána újra párosítani kell."><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="danger small">Visszavonás</button></form>{% endif %}</div>
+    <div class="meta">
+      {% if r.version %}verzió {{ r.version }}{% if r.protocol and r.protocol != protocol %} (régi protokoll){% endif %} · {% endif %}
+      utoljára: {{ r.last_seen_at|local if r.last_seen_at else 'még soha' }}
+      {% if r.capabilities.transcribe_modes %} · átírás: {% for m in r.capabilities.transcribe_modes %}{{ mode_labels.get(m, m) }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}
+      {% if r.capabilities.llm_roles %} · összefoglaló: {{ r.capabilities.llm_roles|join(', ') }}{% endif %}
+    </div>
+  </li>
+{% endfor %}
+</ul>
+{% else %}<p class="muted">Még nincs futtatód.</p>{% endif %}
+{% endblock %}

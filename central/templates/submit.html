@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Új átirat{% endblock %}
+{% block content %}
+<h1>Új átirat</h1>
+{% for e in errors %}<p class="error" role="alert">{{ e }}</p>{% endfor %}
+<form method="post" action="/uj" class="card">
+  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+  <label>Videó URL-je <input name="url" value="{{ form.url or '' }}" placeholder="https://www.youtube.com/watch?v=…" required autofocus></label>
+  <fieldset><legend>Mód</legend>
+  {% for value, label in modes.items() %}
+    <label class="choice"><input type="radio" name="mode" value="{{ value }}" {% if (form.mode or 'captions') == value %}checked{% endif %}> {{ label }}</label>
+  {% endfor %}
+  </fieldset>
+  <div class="grid">
+    <label>Nyelv (üresen automatikus) <input name="language" value="{{ form.language or '' }}" placeholder="hu, en …" maxlength="3"></label>
+    <label>Felhős modell
+      <select name="model_cloud">{% for m in cloud_models %}<option value="{{ m }}" {% if form.model_cloud == m %}selected{% endif %}>{{ m }}</option>{% endfor %}</select>
+    </label>
+    <label>Beszélők száma (felhős módban, ha tudod) <input name="num_speakers" class="num" value="{{ form.num_speakers or '' }}" inputmode="numeric"></label>
+  </div>
+  <label class="choice"><input type="checkbox" name="summarize" {% if form.summarize == 'on' %}checked{% endif %}> Magyar összefoglaló is</label>
+  <p><button>Beküldés</button></p>
+  <p class="muted">A munkát a saját futtatód végzi el; a felhős átírás és a felhős összefoglaló a futtatódban megadott kulccsal, a te költségedre megy.</p>
+</form>
+{% endblock %}

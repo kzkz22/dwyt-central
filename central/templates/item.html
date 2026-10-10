@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}{{ item_title(item) }}{% endblock %}
+{% block content %}
+<div class="bar">
+  <h1>{{ item_title(item) }}</h1>
+  <form method="post" action="/elem/{{ item.id }}/torles" class="inline confirm" data-confirm="Törlöd az elemet a könyvtáradból?">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="danger small">Törlés</button>
+  </form>
+</div>
+<p class="meta">
+  {% if item.source.meta.channel %}{{ item.source.meta.channel }} · {% endif %}
+  {% if item.source.meta.duration_s %}{{ hms(item.source.meta.duration_s) }} · {% endif %}
+  <a href="{{ item.source.url }}" rel="noopener noreferrer" target="_blank">eredeti</a>
+</p>
+{% for job in item_jobs if job.state in ('queued', 'running') %}
+<p class="warn-box">{{ 'Átírás' if job.kind == 'transcribe' else 'Összefoglaló' }}: {{ state_labels[job.state] }}{% if job.stage and job.state == 'running' %} – {{ stage_label(job.stage) }}{% endif %}{% if job.error %} ({{ job.error }}){% endif %} · <a href="/munkak">Munkák</a></p>
+{% endfor %}
+{% for job in item_jobs if job.state == 'failed' %}{% if loop.first %}
+<p class="error">Legutóbbi hiba: {{ job.error }} · <a href="/munkak">Munkák</a></p>
+{% endif %}{% endfor %}
+
+<section class="card">
+  <div class="bar"><h2>Összefoglaló</h2>
+  {% if item.main_transcript_id %}
+  <form method="post" action="/elem/{{ item.id }}/osszefoglalo" class="inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="secondary small">{{ 'Új összefoglaló' if summary else 'Összefoglaló kérése' }}</button>
+  </form>
+  {% endif %}</div>
+  {% if summary %}
+  <div class="summary">{% for line in summary.text.splitlines() %}{% if line.startswith('## ') %}<h3>{{ line[3:] }}</h3>{% elif line.startswith('- ') %}<p class="point">• {{ line[2:] }}</p>{% elif line.strip() %}<p>{{ line }}</p>{% endif %}{% endfor %}</div>
+  <p class="meta">{{ summary.model_used or summary.model or summary.role }} · {{ summary.created_at|local }}{% if summary.prompt_tokens %} · {{ summary.prompt_tokens }} + {{ summary.completion_tokens or 0 }} token{% endif %}{% if summary.duration_s %} · {{ summary.duration_s|round(0)|int }} s{% endif %}</p>
+  {% else %}<p class="muted">Még nincs összefoglaló.</p>{% endif %}
+</section>
+
+<section class="card">
+  <h2>Átirat</h2>
+  {% if transcripts|length > 1 %}
+  <p class="actions">{% for t in transcripts %}<a href="/elem/{{ item.id }}?atirat={{ t.id }}" class="badge {% if transcript and t.id == transcript.id %}cloud{% endif %}">{{ describe_transcript(t) }}{% if t.id == item.main_transcript_id %} (fő){% endif %}</a>{% endfor %}</p>
+  {% endif %}
+  {% if transcript %}
+  <p class="meta">{{ describe_transcript(transcript) }} · nyelv: {{ transcript.language or '?' }}{% if transcript.cloud and transcript.cloud.estimated_cost_usd is not none %} · kb. {{ transcript.cloud.estimated_cost_usd }} USD{% endif %}{% if transcript.elapsed_s %} · {{ transcript.elapsed_s|round(0)|int }} s{% endif %}</p>
+  {% for w in transcript.warnings %}<p class="warn-box">{{ w }}</p>{% endfor %}
+  {% for p in paragraphs %}
+  <p class="para"><span class="ts">{% if links[p.start] %}<a href="{{ links[p.start] }}" rel="noopener noreferrer" target="_blank">[{{ hms(p.start) }}]</a>{% else %}[{{ hms(p.start) }}]{% endif %}</span>{% if p.speaker %} <strong>{{ p.speaker }}:</strong>{% endif %} {{ p.text }}</p>
+  {% endfor %}
+  {% else %}<p class="muted">Még nincs átirat.</p>{% endif %}
+</section>
+{% endblock %}

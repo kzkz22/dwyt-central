@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Admin belépés{% endblock %}
+{% block content %}
+<section class="login card">
+  <h1>Admin belépés</h1>
+  {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+  {% if step == "password" %}
+  <form method="post" action="/admin-belepes">
+    <label>E-mail-cím <input name="email" type="email" value="{{ email or '' }}" autocomplete="username" required autofocus></label>
+    <label>Jelszó <input name="password" type="password" autocomplete="current-password" required></label>
+    <button>Tovább</button>
+  </form>
+  {% else %}
+  <form method="post" action="/admin-belepes/kod">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <label>A hitelesítő alkalmazás 6 jegyű kódja
+      <input name="code" inputmode="numeric" pattern="[0-9 ]{6,7}" maxlength="7" autocomplete="one-time-code" required autofocus>
+    </label>
+    <button>Belépés</button>
+  </form>
+  {% endif %}
+  <p class="muted"><a href="/belepes">Vissza</a></p>
+</section>
+{% endblock %}

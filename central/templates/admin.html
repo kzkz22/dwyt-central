@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Admin{% endblock %}
+{% block content %}
+<h1>Admin</h1>
+{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+<section class="card">
+  <h2>Meghívó</h2>
+  <p class="muted">Regisztráció: {{ {'invite': 'meghívással', 'open': 'nyitott', 'closed': 'zárt'}.get(registration, registration) }}. A meghívó 7 napig érvényes, egyszer használható.</p>
+  {% if invite_link %}
+  <p class="warn-box" role="status">Meghívó ide: <strong>{{ invite_email }}</strong>. Másold ki és küldd el neki (csak most látszik):<br><code class="copy">{{ invite_link }}</code></p>
+  {% endif %}
+  <form method="post" action="/admin/meghivo" class="actions">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <input name="email" type="email" placeholder="e-mail-cím (a meghívott Google-fiókjáé)" required>
+    <button>Meghívó készítése</button>
+  </form>
+  {% if invites %}
+  <ul class="jobs">
+  {% for inv in invites %}
+    <li class="meta">{{ inv.email }} · {{ inv.created_at|local }} ·
+      {% if inv.used_at %}felhasználva{% elif inv.revoked_at %}visszavonva{% elif inv.expires_at <= now %}lejárt{% else %}érvényes {{ inv.expires_at|local }}-ig
+      <form method="post" action="/admin/meghivo/{{ inv.id }}/visszavonas" class="inline"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="link">visszavonás</button></form>{% endif %}
+    </li>
+  {% endfor %}
+  </ul>
+  {% endif %}
+</section>
+<section class="card">
+  <h2>Felhasználók</h2>
+  <p class="muted">A felhasználók könyvtárát az admin sem látja; itt csak a fiókadatok és a számok vannak.</p>
+  <ul class="jobs">
+  {% for u in users %}
+    <li class="bar">
+      <span>{{ u.name or u.email }} <span class="meta">{{ u.email }} · {{ 'admin' if u.role == 'admin' else 'felhasználó' }} · {{ item_counts.get(u.id, 0) }} elem · {{ runner_counts.get(u.id, 0) }} futtató · utolsó belépés: {{ u.last_login_at|local if u.last_login_at else '–' }}{% if u.disabled %} · <strong>letiltva</strong>{% endif %}</span></span>
+      {% if u.id != viewer.id %}<form method="post" action="/admin/felhasznalo/{{ u.id }}/{{ 'engedelyezes' if u.disabled else 'tiltas' }}" class="inline"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="secondary small">{{ 'Engedélyezés' if u.disabled else 'Letiltás' }}</button></form>{% endif %}
+    </li>
+  {% endfor %}
+  </ul>
+</section>
+{% endblock %}
