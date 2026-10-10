@@ -1,7 +1,7 @@
 # dwyt-central
 
 The **dwyt** central service: web UI, sign-in (Google OIDC + invitations, admin fallback with password + TOTP),
-per-user libraries (strictly separated; PostgreSQL row-level security proposed as a second line), search
+per-user libraries (strictly separated; PostgreSQL row-level security as a second line), search
 (full text + pg_trgm + pgvector with bge-m3 on CPU), YouTube subscriptions inbox, job queue for runners, MCP
 with per-user tokens. It never holds users' API keys and never calls a runner: runners connect out
 (HTTPS long-poll) and claim jobs by their declared capabilities.
