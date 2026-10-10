@@ -1,6 +1,7 @@
 import time
 
 import pyotp
+import pytest
 from conftest import csrf_of, google_login, make_admin, post
 from sqlalchemy import select
 
@@ -137,3 +138,22 @@ def test_a_callback_link_from_another_browser_is_refused(client_factory, fake_go
     assert "dwyt_session" not in r.cookies
     # the state is used up: the attacker cannot finish it either
     assert attacker.get(f"/auth/google/callback?state={q['state'][0]}&code=evil").status_code == 403
+
+
+def test_malformed_addresses_are_refused(monkeypatch):
+    from central import accounts, cli
+    assert accounts.valid_email("  bob@example.org ") == "bob@example.org"
+    for bad in ("bob", "bob@example", "a b@example.org", "bob@@example.org", "\x1bbob@example.org", ""):
+        assert accounts.valid_email(bad) is None
+    with pytest.raises(SystemExit):
+        cli.create_admin("\x1bSadmin@example.org", "jelszo-hosszu-12")
+
+
+def test_cli_asks_before_using_the_address(monkeypatch):
+    import types
+
+    from central import cli
+    monkeypatch.setattr(cli.sys, "stdin", types.SimpleNamespace(isatty=lambda: True))
+    monkeypatch.setattr("builtins.input", lambda prompt: "n")
+    with pytest.raises(SystemExit, match="Megszakítva"):
+        cli.invite("carol@example.org")

@@ -630,8 +630,8 @@ def admin_page(request: Request, viewer: Viewer = Depends(admin_viewer)):
 
 @app.post("/admin/meghivo")
 async def create_invite(request: Request, viewer: Viewer = Depends(admin_post)):
-    email = str((await request.form()).get("email", "")).strip()
-    if "@" not in email or len(email) > 200 or any(c.isspace() for c in email):
+    email = accounts.valid_email(str((await request.form()).get("email", "")))
+    if email is None:
         return _render(request, "admin.html", viewer, status_code=422, **_admin_context(),
                        error="Adj meg egy érvényes e-mail-címet.")
 

@@ -112,7 +112,7 @@ dwyt-central-cli create-admin SAJÁT-EMAIL@gmail.com
 dwyt-central-cli check
 ```
 
-A `create-admin` jelszót kér (legalább 12 karakter), és kiír egy QR-kódot a hitelesítő alkalmazáshoz. Ez a tartalékbelépés (`/admin-belepes`), ha a Google-belépés nem működne. Ugyanez az e-mail-cím a Google-lel is beléphet, és első alkalommal hozzáköti a Google-fiókját.
+A `create-admin` először visszaírja az e-mail-címet, és megerősítést kér (`i` = igen; egy véletlen leütés vagy beillesztési szemét így nem kerül a címbe). Utána jelszót kér (legalább 12 karakter), és kiír egy QR-kódot a hitelesítő alkalmazáshoz. Ez a tartalékbelépés (`/admin-belepes`), ha a Google-belépés nem működne. Ugyanez az e-mail-cím a Google-lel is beléphet, és első alkalommal hozzáköti a Google-fiókját.
 
 A `check` elvárt kimenete: „sorvédelem: bekapcsolva”, „alkalmazás-szerepkör (dwyt_app): rendben”.
 

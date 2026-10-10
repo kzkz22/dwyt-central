@@ -16,6 +16,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import re
 import secrets
 import time
 from dataclasses import dataclass
@@ -143,6 +144,17 @@ def resolve_user(db: DbSession, settings: Settings, who: GoogleIdentity, invite_
     if invite is not None:
         invite.used_at, invite.used_by = utcnow(), user.id
     return user
+
+
+EMAIL_RE = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
+
+
+def valid_email(email: str) -> str | None:
+    """The trimmed address if it looks like one (printable, one @, a dot in the domain), else None."""
+    email = (email or "").strip()
+    if len(email) > 200 or not email.isprintable() or not EMAIL_RE.fullmatch(email):
+        return None
+    return email
 
 
 def create_invite(db: DbSession, settings: Settings, email: str, created_by: int | None) -> str:

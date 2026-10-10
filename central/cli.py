@@ -43,6 +43,19 @@ def _show_totp(user: User) -> None:
     print(f"\nVagy add meg kézzel ezt a kulcsot: {user.totp_secret}\n")
 
 
+def _checked_email(email: str, confirm: bool) -> str:
+    """Refuse malformed addresses; interactively, show the address and ask before using it
+    (a stray key or terminal escape pasted before the address is easy to miss)."""
+    clean = accounts.valid_email(email)
+    if clean is None:
+        sys.exit(f"Érvénytelen e-mail-cím: {email!r}")
+    if confirm and sys.stdin.isatty():
+        answer = input(f"E-mail-cím: {clean}  — helyes? [i/N] ").strip().lower()
+        if answer not in ("i", "igen", "y", "yes"):
+            sys.exit("Megszakítva; semmi nem változott.")
+    return clean
+
+
 def _admin(s, email: str) -> User:
     user = security.user_by_email(s, email)
     if user is None or user.role != "admin":
@@ -51,6 +64,7 @@ def _admin(s, email: str) -> User:
 
 
 def create_admin(email: str, password: str | None = None) -> None:
+    email = _checked_email(email, confirm=password is None)
     password = password or _ask_password()
     with db.system_session() as s:
         user = security.user_by_email(s, email)
@@ -92,6 +106,7 @@ def unlock(email: str) -> None:
 
 
 def invite(email: str) -> None:
+    email = _checked_email(email, confirm=True)
     with db.system_session() as s:
         link = accounts.create_invite(s, get_settings(), email, None)
     print(link)
