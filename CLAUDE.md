@@ -6,7 +6,8 @@ per-user libraries (strictly separated; PostgreSQL row-level security as a secon
 with per-user tokens. It never holds users' API keys and never calls a runner: runners connect out
 (HTTPS long-poll) and claim jobs by their declared capabilities.
 
-Status: round 1 implemented (sign-in, invitations, RLS library, runner protocol, captions/cloud/summary jobs).
+Status: rounds 1–2 implemented (sign-in, invitations, RLS library, runner protocol, captions/cloud/summary jobs;
+local Whisper mode: `whisper_models` capability, claims filtered by the requested model, unfit queued jobs flagged).
 Source of truth: `dwyt-docs` (`docs/terv.md`, `docs/protokoll.md`). Install: `docs/telepites.md`; tests need PostgreSQL
 (throw-away cluster from tests/pgcluster.py, or TEST_DATABASE_URL as superuser).
 License: AGPL-3.0.

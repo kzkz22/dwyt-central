@@ -161,6 +161,7 @@ class Capabilities(BaseModel):
     allowed_domains: list[Short] = Field(default_factory=list, max_length=100)
     max_upload_bytes: int | None = None
     local_sources: bool = False
+    whisper_models: list[Annotated[str, StringConstraints(max_length=40)]] = Field(default_factory=list, max_length=20)
 
 
 class ClaimBody(BaseModel):

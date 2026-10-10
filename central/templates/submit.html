@@ -13,13 +13,16 @@
   </fieldset>
   <div class="grid">
     <label>Nyelv (üresen automatikus) <input name="language" value="{{ form.language or '' }}" placeholder="hu, en …" maxlength="3"></label>
+    <label>Whisper-modell (helyi módban)
+      <select name="model_local">{% for m in local_models %}<option value="{{ m }}" {% if form.model_local == m %}selected{% endif %}>{{ m }}{% if m == 'large-v3-turbo' %} (gyorsabb){% endif %}</option>{% endfor %}</select>
+    </label>
     <label>Felhős modell
       <select name="model_cloud">{% for m in cloud_models %}<option value="{{ m }}" {% if form.model_cloud == m %}selected{% endif %}>{{ m }}</option>{% endfor %}</select>
     </label>
-    <label>Beszélők száma (felhős módban, ha tudod) <input name="num_speakers" class="num" value="{{ form.num_speakers or '' }}" inputmode="numeric"></label>
+    <label>Beszélők száma (helyi és felhős módban, ha tudod) <input name="num_speakers" class="num" value="{{ form.num_speakers or '' }}" inputmode="numeric"></label>
   </div>
   <label class="choice"><input type="checkbox" name="summarize" {% if form.summarize == 'on' %}checked{% endif %}> Magyar összefoglaló is</label>
   <p><button>Beküldés</button></p>
-  <p class="muted">A munkát a saját futtatód végzi el; a felhős átírás és a felhős összefoglaló a futtatódban megadott kulccsal, a te költségedre megy.</p>
+  <p class="muted">A munkát a saját futtatód végzi el; a helyi Whisperhez AI-router és GPU-gép kell (dwyt-airouter, dwyt-gpu). A felhős átírás és a felhős összefoglaló a futtatódban megadott kulccsal, a te költségedre megy.</p>
 </form>
 {% endblock %}

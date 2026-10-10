@@ -24,7 +24,9 @@ RETRY_MINUTES = (1, 5, 15, 60, 180, 360)
 STAGE_LABELS = {
     None: "", "queued": "Sorban áll", "download": "Letöltés", "captions": "Felirat letöltése",
     "prepare-audio": "Hang előkészítése", "upload": "Feltöltés a felhőbe", "transcribe": "Átírás",
-    "summarize": "Összefoglaló írása", "write": "Mentés",
+    "summarize": "Összefoglaló írása", "write": "Mentés", "starting": "Indul",
+    "waiting-for-gpu": "Vár a GPU-ra", "load-audio": "Hang betöltése", "align": "Igazítás",
+    "diarize": "Beszélők szétválasztása",
 }
 STATE_LABELS = {"queued": "Sorban", "running": "Fut", "done": "Kész", "failed": "Hiba", "cancelled": "Megszakítva"}
 CAPTIONS_SUMMARY_LANGUAGE = "hu"
@@ -85,12 +87,15 @@ def retry(s: DbSession, job: Job) -> None:
 
 # ---- claiming (system session, limited to the runner's user) -------------------------------
 
-def _fits(job: Job, caps: dict[str, Any]) -> bool:
+def fits(job: Job, caps: dict[str, Any]) -> bool:
     if job.kind not in (caps.get("kinds") or []):
         return False
     if job.kind == "transcribe":
-        mode = (job.payload.get("options") or {}).get("mode")
+        options = job.payload.get("options") or {}
+        mode = options.get("mode")
         if mode not in (caps.get("transcribe_modes") or []):
+            return False
+        if mode == "local" and options.get("model") not in (caps.get("whisper_models") or []):
             return False
         url = (job.payload.get("source") or {}).get("url") or ""
         return sources.domain_allowed(url, caps.get("allowed_domains"))
@@ -122,7 +127,7 @@ def claim(s: DbSession, runner: Runner, caps: dict[str, Any], settings: Settings
         Job.user_id == runner.user_id, Job.state == "queued", Job.run_after <= now,
         Job.cancel_requested.is_(False), Job.kind.in_(caps.get("kinds") or []))
         .order_by(Job.id).limit(50).with_for_update(skip_locked=True)).all()
-    job = next((j for j in candidates if _fits(j, caps)), None)
+    job = next((j for j in candidates if fits(j, caps)), None)
     if job is None:
         return None
     job.state, job.stage, job.runner_id = "running", "starting", runner.id

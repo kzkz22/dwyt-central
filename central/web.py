@@ -441,8 +441,10 @@ async def resummarize(request: Request, item_id: int, viewer: Viewer = Depends(a
 # ---- submit -------------------------------------------------------------------------------
 
 MODES = {"captions": "YouTube-felirat (gyors, ingyenes, beszélők nélkül)",
+         "local": "Helyi Whisper (a saját GPU-don, beszélőkkel; megvárja a GPU-gépet)",
          "cloud": "Felhős átírás (a futtatód AssemblyAI-kulcsával, beszélőkkel)"}
 CLOUD_MODELS = ("auto", "universal-2", "universal-3-5-pro")
+LOCAL_MODELS = ("large-v3", "large-v3-turbo")
 
 
 def parse_options(form: dict[str, str]) -> tuple[dict[str, Any], list[str]]:
@@ -459,6 +461,12 @@ def parse_options(form: dict[str, str]) -> tuple[dict[str, Any], list[str]]:
         if model not in CLOUD_MODELS:
             errors.append("Ismeretlen felhős modell.")
         options["model"] = model
+    if mode == "local":
+        model = form.get("model_local") or LOCAL_MODELS[0]
+        if model not in LOCAL_MODELS:
+            errors.append("Ismeretlen Whisper-modell.")
+        options["model"] = model
+    if mode in ("cloud", "local"):
         speakers = (form.get("num_speakers") or "").strip()
         if speakers:
             if not speakers.isdigit() or not 1 <= int(speakers) <= 20:
@@ -471,7 +479,7 @@ def parse_options(form: dict[str, str]) -> tuple[dict[str, Any], list[str]]:
 @app.get("/uj", response_class=HTMLResponse)
 def submit_page(request: Request, viewer: Viewer = Depends(current_viewer)):
     return _render(request, "submit.html", viewer, form={"summarize": "on"}, errors=[], modes=MODES,
-                   cloud_models=CLOUD_MODELS)
+                   cloud_models=CLOUD_MODELS, local_models=LOCAL_MODELS)
 
 
 def _source_for(ref: sources.SourceRef) -> int:
@@ -494,7 +502,7 @@ async def submit(request: Request, viewer: Viewer = Depends(authed_post)):
         errors.append("YouTube-feliratot csak YouTube-videóhoz lehet kérni.")
     if errors:
         return _render(request, "submit.html", viewer, form=form, errors=errors, modes=MODES,
-                       cloud_models=CLOUD_MODELS, status_code=422)
+                       cloud_models=CLOUD_MODELS, local_models=LOCAL_MODELS, status_code=422)
     source_id = await run_in_threadpool(_source_for, ref)
 
     def enqueue() -> int:
@@ -521,7 +529,11 @@ def _jobs_context(viewer: Viewer) -> dict[str, Any]:
                                                                               Job.id.desc()).limit(30)).all()
         runners = s.scalars(select(Runner).where(Runner.revoked_at.is_(None))).all()
     online = [r for r in runners if r.last_seen_at and (utcnow() - r.last_seen_at).total_seconds() < ONLINE_S]
-    return {"active": active, "recent": recent, "runner_count": len(runners), "online_count": len(online)}
+    # queued jobs that none of the runners has declared it can do (e.g. local Whisper without a GPU)
+    unfit = {j.id for j in active if j.state == "queued" and runners
+             and not any(jobs.fits(j, r.capabilities or {}) for r in runners)}
+    return {"active": active, "recent": recent, "runner_count": len(runners), "online_count": len(online),
+            "unfit": unfit}
 
 
 @app.get("/munkak", response_class=HTMLResponse)

@@ -164,3 +164,35 @@ def test_oversized_runner_fields_are_refused(alice, anon):
     r = anon.post(f"/runner/v1/jobs/{job['job_id']}/heartbeat", json={"progress": {"x": "y" * 5000}},
                   headers=runner_headers(token))
     assert r.status_code == 422
+
+
+def test_local_whisper_jobs_go_only_to_runners_that_can_do_them(alice, anon):
+    token = pair_runner(alice, anon)
+    r = post(alice, "/uj", {"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "mode": "local",
+                            "model_local": "large-v3-turbo", "language": "hu", "num_speakers": "2"})
+    assert r.status_code == 303, r.text
+    item_id = int(r.headers["location"].rsplit("/", 1)[1])
+    assert claim(anon, token).status_code == 204  # captions + cloud only: not for this runner
+    assert "egyik futtatód sem jelentette" in alice.get("/munkak/lista").text
+    local_caps = {**CAPS, "transcribe_modes": ["captions", "local"], "whisper_models": ["large-v3"]}
+    assert claim(anon, token, local_caps).status_code == 204  # has local, but not this model
+    local_caps["whisper_models"] = ["large-v3", "large-v3-turbo"]
+    job = claim(anon, token, local_caps).json()
+    assert job["input"]["options"] == {"mode": "local", "language": "hu", "diarize": True,
+                                       "model": "large-v3-turbo", "num_speakers": 2}
+    hb = anon.post(f"/runner/v1/jobs/{job['job_id']}/heartbeat", json={"stage": "waiting-for-gpu"},
+                   headers=runner_headers(token))
+    assert hb.status_code == 200
+    assert "Vár a GPU-ra" in alice.get("/munkak/lista").text
+    r = anon.put(f"/runner/v1/jobs/{job['job_id']}/result",
+                 json={**transcript_result(mode="local"),
+                       "transcript": {**transcript_result(mode="local")["transcript"], "model": "large-v3-turbo"}},
+                 headers=runner_headers(token))
+    assert r.status_code == 200, r.text
+    assert "Helyi Whisper (large-v3-turbo)" in alice.get(f"/elem/{item_id}").text
+
+
+def test_unknown_whisper_model_is_refused(alice):
+    r = post(alice, "/uj", {"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "mode": "local",
+                            "model_local": "tiny"})
+    assert r.status_code == 422 and "Ismeretlen Whisper-modell" in r.text
