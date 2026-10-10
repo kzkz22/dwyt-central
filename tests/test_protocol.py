@@ -17,6 +17,8 @@ def test_full_round_trip_with_summary(alice, anon):
     item_id = _submit(alice)
     job = claim(anon, token).json()
     assert job["kind"] == "transcribe"
+    page = alice.get("/futtatok").text  # capabilities are shown in Hungarian
+    assert "YouTube-felirat" in page and "nyilvános videók" in page
     assert job["input"]["source"] == {"kind": "youtube", "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
                                       "video_id": "dQw4w9WgXcQ"}
     assert job["input"]["options"]["mode"] == "captions"

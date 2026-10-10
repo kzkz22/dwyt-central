@@ -31,7 +31,7 @@
       {% if r.version %}verzió {{ r.version }}{% if r.protocol and r.protocol != protocol %} (régi protokoll){% endif %} · {% endif %}
       utoljára: {{ r.last_seen_at|local if r.last_seen_at else 'még soha' }}
       {% if r.capabilities.transcribe_modes %} · átírás: {% for m in r.capabilities.transcribe_modes %}{{ mode_labels.get(m, m) }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}
-      {% if r.capabilities.llm_roles %} · összefoglaló: {{ r.capabilities.llm_roles|join(', ') }}{% endif %}
+      {% if r.capabilities.llm_roles %} · összefoglaló: {% for m in r.capabilities.llm_roles %}{{ {'public': 'nyilvános videók', 'private': 'saját felvételek'}.get(m, m) }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}
     </div>
   </li>
 {% endfor %}
