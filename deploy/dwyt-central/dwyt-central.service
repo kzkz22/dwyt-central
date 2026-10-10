@@ -1,0 +1,26 @@
+# dwyt central web service. Applies database migrations before it starts.
+# Install: /etc/systemd/system/dwyt-central.service (see docs/telepites.md)
+[Unit]
+Description=dwyt central service
+Wants=network-online.target
+After=network-online.target postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=dwyt
+Group=dwyt
+EnvironmentFile=/etc/dwyt-central/central.env
+WorkingDirectory=/opt/dwyt-central/app
+ExecStartPre=/opt/dwyt-central/venv/bin/alembic upgrade head
+# behind Apache: uvicorn trusts X-Forwarded-For/-Proto only from FORWARDED_ALLOW_IPS (central.env)
+ExecStart=/opt/dwyt-central/venv/bin/uvicorn central.web:app --host 0.0.0.0 --port 8000 --workers 1 --proxy-headers --no-server-header
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,7 @@
+#!/bin/sh
+# dwyt-central administration with the service's settings, as the service user.
+# Install: /usr/local/bin/dwyt-central-cli (chmod 755). Usage: dwyt-central-cli create-admin EMAIL | invite EMAIL | check
+set -a
+. /etc/dwyt-central/central.env
+set +a
+cd /opt/dwyt-central/app && exec runuser -u dwyt -- /opt/dwyt-central/venv/bin/dwyt-central "$@"
