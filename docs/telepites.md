@@ -1,14 +1,15 @@
 # A központ telepítése
 
-Ez a leírás a dwyt központ első telepítését írja le egy Proxmox LXC-be, Debian 12-re. Más Debian/Ubuntu gépen is ugyanígy megy; csak az 1. lépés Proxmox-specifikus. A frissítés: [frissites.md](frissites.md). A terv és a döntések: [dwyt-docs](https://github.com/kzkz22/dwyt-docs/blob/main/docs/terv.md).
+Ez a leírás a dwyt központ első telepítését írja le egy Proxmox LXC-be, Debian 12-re, a mostani változat minden részével: új telepítéshez csak ezt kell követni, a [frissites.md](frissites.md) körönkénti részei a régebbi telepítések frissítéséhez kellenek. Más Debian/Ubuntu gépen is ugyanígy megy; csak az 1. lépés Proxmox-specifikus. A terv és a döntések: [dwyt-docs](https://github.com/kzkz22/dwyt-docs/blob/main/docs/terv.md).
 
 Mi kerül az LXC-be:
 
 | Elem | Hol | Mire |
 | --- | --- | --- |
-| PostgreSQL 17 (+ `pgvector` a 3. körhöz) | rendszercsomag | a felhasználók könyvtárai, sorvédelemmel |
+| PostgreSQL 17 + `pgvector` | rendszercsomag | a felhasználók könyvtárai, sorvédelemmel, a keresés vektorai |
 | `dwyt-central` szolgáltatás | `/opt/dwyt-central`, 8000-es port | a webes felület és a futtatók protokollja; indításkor lefuttatja az adatbázis-migrációkat |
 | `dwyt-central-cli` | `/usr/local/bin` | admin létrehozása, meghívó, ellenőrzés |
+| `dwyt-central-embed` (nem kötelező) | ugyanabban a venv-ben, `127.0.0.1:8001` | a jelentés szerinti keresés (`bge-m3`, CPU) |
 
 A központ nem számol: a munkát a felhasználók saját futtatói végzik ([dwyt-runner](https://github.com/kzkz22/dwyt-runner)), amelyek kifelé kapcsolódnak ide. Kulcsot (AssemblyAI, LLM) a központ nem tárol.
 
@@ -103,7 +104,19 @@ install -m 600 /opt/dwyt-central/app/deploy/dwyt-central/central.env.example /et
 nano /etc/dwyt-central/central.env
 ```
 
-Az első indításhoz elég a `BASE_URL` (`https://dwyt.iodate.date`) és a `FORWARDED_ALLOW_IPS` (az Apache-gép címe). A Google-adatok a 7. lépésben kerülnek bele.
+Az első indításhoz elég a `BASE_URL` (`https://dwyt.iodate.date`) és a `FORWARDED_ALLOW_IPS` (az Apache-gép címe). A Google-adatok és a `TOKEN_KEY` a 7. lépésben kerülnek bele.
+
+A többi beállítás nem kötelező; a minta fájl megjegyzései írják le őket:
+
+| Beállítás | Mire |
+| --- | --- |
+| `REGISTRATION` | `invite` (alap), `open` vagy `closed` |
+| `UPLOAD_MAX_MB`, `STORAGE_QUOTA_MB` … | kvóták alapértékei (az admin felhasználónként felülírhatja) |
+| `EMBED_URL` | a beágyazó szolgáltatás címe; üresen csak szöveges keresés |
+| `FEED_POLL_MIN`, `GPU_WAIT_H` | a hírcsatornák ellenőrzése, a feliratkozásos videók várakozása a GPU-ra |
+| `NOTIFY_PRIVATE_NETS` | belső hálózat, amelyre a felhasználók értesítési címe mutathat (az adminé mindig) |
+| `REQUIRE_TOTP` | a Google után mindenkinek kötelező a hitelesítő alkalmazás kódja |
+| `SMTP_*` | meghívó e-mailben (7. lépés vége) |
 
 ## 6. Szolgáltatás és admin
 
@@ -251,6 +264,7 @@ Ellenőrzés: `curl -sI https://dwyt.iodate.date/healthz` → `200`, és a vála
 2. **Admin → Meghívó:** e-mail-cím → a kapott linket küldd el a meghívottnak (7 napig érvényes, egyszer használható).
 3. **Futtatók:** a saját gépeden telepítsd a futtatót ([dwyt-runner](https://github.com/kzkz22/dwyt-runner)), `dwyt-runner pair https://dwyt.iodate.date`, a kiírt kódot írd be itt.
 4. **Új átirat:** egy YouTube-link „YouTube-felirat” móddal; a futtató pár másodpercen belül elkezdi.
+5. Ami ezután mindenkinek a saját felületén van: **Csatornák** (YouTube-feliratkozások), **Postaláda**, **Beállítások** (fordítás, értesítés ntfy-jal vagy Home Assistanttel, kétlépcsős belépés, MCP-tokenek, export, fióktörlés). Az MCP-kliensek beállítása: [mcp.md](mcp.md).
 
 ## Hibakeresés
 

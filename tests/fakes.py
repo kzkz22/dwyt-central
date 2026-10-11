@@ -73,7 +73,9 @@ class FakeGoogle:
             subs = fake.subscriptions.get(token, [])
             start = int(request.query_params.get("pageToken") or 0)
             page = subs[start:start + 2]  # small pages: the client must follow nextPageToken
-            body = {"items": [{"snippet": {"title": t, "resourceId": {"channelId": c}}} for c, t in page]}
+            fake.orders.append(request.query_params.get("order"))
+            body = {"items": [{"snippet": {"title": t, "resourceId": {"channelId": c}}} for c, t in page],
+                    "pageInfo": {"totalResults": fake.total_reported.get(token, len(subs)), "resultsPerPage": 2}}
             if start + 2 < len(subs):
                 body["nextPageToken"] = str(start + 2)
             return body
@@ -87,6 +89,8 @@ class FakeGoogle:
         self.refresh_tokens: set[str] = set()
         self.revoked: list[str] = []
         self.subscriptions: dict[str, list[tuple[str, str]]] = {}  # refresh token -> (channel id, title)
+        self.total_reported: dict[str, int] = {}
+        self.orders: list[str | None] = []
 
     def start(self) -> "FakeGoogle":
         self._server = uvicorn.Server(uvicorn.Config(self.app, host="127.0.0.1", port=self.port, log_level="warning"))

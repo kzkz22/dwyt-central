@@ -170,3 +170,7 @@ mark { background: var(--warn-bg); color: inherit; padding: 0 1px; }
 .token { word-break: break-all; user-select: all; }
 textarea { width: 100%; font: inherit; padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--fg); box-sizing: border-box; }
 .qr svg { display: block; margin: 8px 0; background: #fff; padding: 8px; border-radius: 6px; }
+.item-head-text { flex: 1 1 320px; min-width: 0; }
+.item-head .cover { width: 240px; max-width: 100%; border-radius: 8px; }
+.transcripts li { padding: 4px 0; }
+.transcripts li.current { font-weight: 500; }

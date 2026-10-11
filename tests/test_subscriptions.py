@@ -58,9 +58,12 @@ def test_connect_youtube_reads_the_list_and_keeps_the_token_encrypted(alice, bob
     assert "rt-alice" not in stored
     assert "Kert" not in bob.get("/csatornak").text  # strictly per user
 
-    fake_google.subscriptions["rt-alice"] = [(GARDEN, "Kert"), (COOKING, "Főzés")]
+    assert set(fake_google.orders) == {"alphabetical"}
+    fake_google.subscriptions["rt-alice"] = [(GARDEN, "Kert"), (COOKING, "Főzés"), (COOKING, "Főzés")]
+    fake_google.total_reported["rt-alice"] = 5
     r = post(alice, "/csatornak/youtube/frissites")
-    assert "2 feliratkozás" in r.text and "1 leiratkozott" in r.text
+    assert "2 feliratkozás jött le (a YouTube szerint 5)" in r.text and "1 leiratkozott" in r.text
+    assert "(a YouTube szerint 5)" in alice.get("/csatornak").text
     assert "már nem vagy feliratkozva" in r.text
 
     assert post(alice, "/csatornak/youtube/levalasztas").status_code == 303

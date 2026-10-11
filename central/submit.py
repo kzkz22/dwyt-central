@@ -38,14 +38,48 @@ def parse_options(form: dict[str, str]) -> tuple[dict[str, Any], list[str]]:
             errors.append("Ismeretlen Whisper-modell.")
         options["model"] = model
     if mode in ("cloud", "local"):
-        speakers = (form.get("num_speakers") or "").strip()
-        if speakers:
-            if not speakers.isdigit() or not 1 <= int(speakers) <= 20:
-                errors.append("A beszélők száma 1 és 20 között legyen.")
-            else:
-                options["num_speakers"] = int(speakers)
+        _speakers(form, options, errors)
     return options, errors
 
+
+SPEAKER_MODES = ("auto", "exact", "range", "none")
+
+
+def _count(value: str | None, label: str, errors: list[str]) -> int | None:
+    value = (value or "").strip()
+    if not value:
+        return None
+    if not value.isdigit() or not 1 <= int(value) <= 20:
+        errors.append(f"{label}: 1 és 20 közötti szám legyen.")
+        return None
+    return int(value)
+
+
+def _speakers(form: dict[str, str], options: dict[str, Any], errors: list[str]) -> None:
+    """auto | exact (num_speakers) | range (min/max) | none (no diarization). A lone num_speakers means exact."""
+    mode = form.get("speakers") or ("exact" if (form.get("num_speakers") or "").strip() else "auto")
+    if mode not in SPEAKER_MODES:
+        errors.append("Ismeretlen beszélő-beállítás.")
+        return
+    if mode == "none":
+        options["diarize"] = False
+    elif mode == "exact":
+        count = _count(form.get("num_speakers"), "A beszélők száma", errors)
+        if count is None and not errors:
+            errors.append("Add meg a beszélők számát.")
+        if count:
+            options["num_speakers"] = count
+    elif mode == "range":
+        low = _count(form.get("min_speakers"), "Legalább", errors)
+        high = _count(form.get("max_speakers"), "Legfeljebb", errors)
+        if low is None and high is None and not errors:
+            errors.append("Adj meg legalább egy határt a beszélők számára.")
+        if low and high and low > high:
+            errors.append("A legkisebb beszélőszám nem lehet nagyobb a legnagyobbnál.")
+        if low:
+            options["min_speakers"] = low
+        if high:
+            options["max_speakers"] = high
 
 
 def source_for(ref: sources.SourceRef) -> int:

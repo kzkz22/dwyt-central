@@ -536,7 +536,25 @@ def _thumb(source: Source) -> str | None:
     return None
 
 
-templates.env.globals.update(item_title=_title, thumb=_thumb)
+SOURCE_LABELS = {"youtube": "YouTube", "url": "Weboldal", "upload": "Saját felvétel"}
+
+
+def _speaker_request(options: dict[str, Any] | None) -> str:
+    options = options or {}
+    if options.get("mode") == "captions":
+        return ""
+    if options.get("diarize") is False:
+        return "beszélők nélkül"
+    if options.get("num_speakers"):
+        return f"pontosan {options['num_speakers']}"
+    low, high = options.get("min_speakers"), options.get("max_speakers")
+    if low or high:
+        return " ".join(x for x in (f"legalább {low}" if low else "", f"legfeljebb {high}" if high else "") if x)
+    return "automatikus"
+
+
+templates.env.globals.update(item_title=_title, thumb=_thumb, source_labels=SOURCE_LABELS,
+                             speaker_request=_speaker_request)
 
 LIBRARY_FILTERS = {"": "Minden elem", "nyilvanos": "Videók, weboldalak", "sajat": "Saját felvételek",
                    "nincs-osszefoglalo": "Összefoglaló nélkül", "folyamatban": "Folyamatban"}
@@ -644,6 +662,10 @@ def item_page(request: Request, item_id: int, atirat: int | None = None, nezet: 
         main_names = names if main is chosen else personal.names_for(s, item.id, main.id if main else None)
         labels = personal.labels_of(chosen) if chosen else []
         summary_names = personal.names_for(s, item.id, summary.transcript_id) if summary is not None else {}
+        translated = set(s.scalars(
+            select(Translation.transcript_id).join(ItemTranslation, ItemTranslation.translation_id == Translation.id)
+            .where(ItemTranslation.item_id == item.id)))
+        item_language = (main or chosen).language if (main or chosen) else None
     for p in paragraphs:
         p["speaker"] = personal.rename(p["speaker"], names)
     summary_html = None
@@ -668,6 +690,7 @@ def item_page(request: Request, item_id: int, atirat: int | None = None, nezet: 
                    view=view, reused=reused, translating=translating, summarizing=summarizing,
                    model_choices=_model_choices(runners, item), modes=MODES, cloud_models=CLOUD_MODELS,
                    local_models=LOCAL_MODELS, can_rerun=can_rerun, tags=tags, names=names, labels=labels,
+                   translated=translated, item_language=item_language,
                    can_translate=bool(chosen and jobs.needs_translation(chosen.language)), **status)
 
 
@@ -710,7 +733,7 @@ async def save_speaker_names(item_id: int, transcript_id: int, request: Request,
             if s.get(ItemTranscript, (item_id, transcript_id)) is not None:
                 personal.set_names(s, item_id, s.get(Transcript, transcript_id), given)
     await run_in_threadpool(save)
-    return _redirect(f"/elem/{item_id}?atirat={transcript_id}")
+    return _redirect(f"/elem/{item_id}?atirat={transcript_id}#atirat")
 
 
 @app.get("/elem/{item_id}/allapot", response_class=HTMLResponse)
@@ -768,7 +791,7 @@ async def resummarize(request: Request, item_id: int, viewer: Viewer = Depends(a
     error = await run_in_threadpool(enqueue)
     if error:
         return _message(request, viewer, "Az összefoglaló nem indult el", error, f"/elem/{item_id}", 422)
-    return _redirect(f"/elem/{item_id}")
+    return _redirect(f"/elem/{item_id}#summary")
 
 
 @app.post("/elem/{item_id}/osszefoglalo/aktualis")
@@ -782,7 +805,7 @@ async def choose_summary(request: Request, item_id: int, viewer: Viewer = Depend
     if not await run_in_threadpool(change):
         return _message(request, viewer, "Nincs ilyen összefoglaló", "Ez az összefoglaló nem ehhez az elemhez "
                         "tartozik.", f"/elem/{item_id}", 404)
-    return _redirect(f"/elem/{item_id}")
+    return _redirect(f"/elem/{item_id}#summary")
 
 
 def _download(body: str, filename: str, ascii_name: str, media_type: str) -> Response:
@@ -837,7 +860,7 @@ async def make_main(request: Request, item_id: int, viewer: Viewer = Depends(aut
     if not await run_in_threadpool(change):
         return _message(request, viewer, "Nincs ilyen átirat", "Ez az átirat nem ehhez az elemhez tartozik.",
                         f"/elem/{item_id}", 404)
-    return _redirect(f"/elem/{item_id}")
+    return _redirect(f"/elem/{item_id}#atirat")
 
 
 @app.post("/elem/{item_id}/atirat/{transcript_id}/torles")
@@ -848,7 +871,7 @@ async def delete_transcript(item_id: int, transcript_id: int, viewer: Viewer = D
             if item is not None:
                 items.remove_transcript(s, viewer.id, item, transcript_id)
     await run_in_threadpool(remove)
-    return _redirect(f"/elem/{item_id}")
+    return _redirect(f"/elem/{item_id}#atirat")
 
 
 @app.post("/elem/{item_id}/sajat")
@@ -873,7 +896,7 @@ async def rerun_own(request: Request, item_id: int, viewer: Viewer = Depends(aut
     error = await run_in_threadpool(enqueue)
     if error:
         return _message(request, viewer, "Az átírás nem indult el", error, f"/elem/{item_id}", 422)
-    return _redirect(f"/elem/{item_id}")
+    return _redirect(f"/elem/{item_id}#atirat")
 
 
 @app.post("/elem/{item_id}/ujrairas")
@@ -892,34 +915,40 @@ async def retranscribe(request: Request, item_id: int, viewer: Viewer = Depends(
     error = await run_in_threadpool(enqueue)
     if error:
         return _message(request, viewer, "Az újraírás nem indult el", error, f"/elem/{item_id}", 422)
-    return _redirect(f"/elem/{item_id}")
+    return _redirect(f"/elem/{item_id}#atirat")
 
 
 @app.post("/elem/{item_id}/forditas")
 async def request_translation(request: Request, item_id: int, viewer: Viewer = Depends(authed_post)):
+    """A Hungarian translation of one of the item's transcripts (the main one by default)."""
     form = await request.form()
+    raw = str(form.get("transcript_id") or "")
 
     def enqueue() -> str | None:
         with db.user_session(viewer.id) as s:
             item = s.get(Item, item_id)
             if item is None or item.main_transcript_id is None:
                 return "Ehhez az elemhez még nincs átirat."
-            t = s.get(Transcript, item.main_transcript_id)
+            tid = int(raw) if raw.isdigit() else item.main_transcript_id
+            if s.get(ItemTranscript, (item.id, tid)) is None:
+                return "Nincs ilyen átirat."
+            t = s.get(Transcript, tid)
             if not jobs.needs_translation(t.language):
                 return "Az átirat magyar, nincs mit fordítani."
             model, problem = _chosen_model(form, _runners(s), item)
             if problem:
                 return problem
-            busy = s.scalar(select(Job.id).where(Job.item_id == item.id, Job.kind == "translate",
-                                                 Job.state.in_(ACTIVE)))
+            busy = [j for j in s.scalars(select(Job).where(Job.item_id == item.id, Job.kind == "translate",
+                                                          Job.state.in_(ACTIVE)))
+                    if (j.payload or {}).get("transcript_id") == tid]
             if busy:
                 return "A fordítás már készül."
-            jobs.enqueue_translation(s, viewer.id, item, item.main_transcript_id, _title(item), model=model)
+            jobs.enqueue_translation(s, viewer.id, item, tid, _title(item), model=model)
             return None
     error = await run_in_threadpool(enqueue)
     if error:
         return _message(request, viewer, "A fordítás nem indult el", error, f"/elem/{item_id}", 422)
-    return _redirect(f"/elem/{item_id}")
+    return _redirect(f"/elem/{item_id}?atirat={raw}#atirat" if raw.isdigit() else f"/elem/{item_id}#atirat")
 
 
 # ---- subscriptions --------------------------------------------------------------------------
@@ -981,7 +1010,8 @@ async def youtube_sync(request: Request, viewer: Viewer = Depends(authed_post)):
         got = await run_in_threadpool(subscriptions.sync_google, get_settings(), viewer.id)
     except (youtube.YoutubeError, secretbox.NoKey) as exc:
         return _channels_message(request, viewer, str(exc), True, 502)
-    return _channels_message(request, viewer, f"A YouTube-fiókban {got['count']} feliratkozás van; "
+    total = f" (a YouTube szerint {got['total']})" if got.get("total") and got["total"] != got["count"] else ""
+    return _channels_message(request, viewer, f"A YouTube-fiókból {got['count']} feliratkozás jött le{total}; "
                              f"{got['added']} új csatorna, {got['gone']} leiratkozott.")
 
 

@@ -210,13 +210,17 @@ def revoke(settings: Settings, refresh_token: str) -> None:
         pass
 
 
-def subscriptions(settings: Settings, token: str) -> list[tuple[str, str | None]]:
-    """(channel id, title) of every channel the connected account is subscribed to."""
+def subscriptions(settings: Settings, token: str) -> tuple[list[tuple[str, str | None]], int | None]:
+    """(channel id, title) of every channel the connected account is subscribed to, and the total
+    YouTube reports. Alphabetical order: the default (relevance) order can skip items while paging."""
     out: list[tuple[str, str | None]] = []
+    seen: set[str] = set()
+    total: int | None = None
     page = None
     with httpx.Client(timeout=20) as c:
-        for _ in range(200):  # 50 per page: up to 10 000 subscriptions
-            params: dict[str, str | int] = {"part": "snippet", "mine": "true", "maxResults": 50}
+        for _ in range(400):  # 50 per page: up to 20 000 subscriptions
+            params: dict[str, str | int] = {"part": "snippet", "mine": "true", "maxResults": 50,
+                                            "order": "alphabetical"}
             if page:
                 params["pageToken"] = page
             try:
@@ -228,12 +232,15 @@ def subscriptions(settings: Settings, token: str) -> list[tuple[str, str | None]
                 raise YoutubeError(f"a YouTube Data API hibát adott (HTTP {resp.status_code}); engedélyezve van a "
                                    "projektben a YouTube Data API v3?")
             data = resp.json()
+            if total is None and isinstance((data.get("pageInfo") or {}).get("totalResults"), int):
+                total = data["pageInfo"]["totalResults"]
             for it in data.get("items", []):
                 sn = it.get("snippet", {})
                 cid = str((sn.get("resourceId") or {}).get("channelId") or "")
-                if CHANNEL_ID.match(cid):
+                if CHANNEL_ID.match(cid) and cid not in seen:
+                    seen.add(cid)
                     out.append((cid, (sn.get("title") or None)))
             page = data.get("nextPageToken")
             if not page:
                 break
-    return out
+    return out, total

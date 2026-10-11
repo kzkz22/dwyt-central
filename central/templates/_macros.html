@@ -19,3 +19,36 @@
 {% if not item.is_public %}<p class="muted">Saját felvétel: csak azok a modellek választhatók, amelyeket a futtatódon saját felvételhez engedélyeztél (<code>llm_private_models</code>).</p>{% endif %}
 {% endif %}
 {%- endmacro %}
+
+{% macro speaker_fields(form) -%}
+{% set chosen = form.speakers or ('exact' if form.num_speakers else 'auto') %}
+<fieldset class="speakers"><legend>Beszélők (helyi és felhős módban)</legend>
+  <label class="choice"><input type="radio" name="speakers" value="auto" {% if chosen == 'auto' %}checked{% endif %}> Automatikus</label>
+  <label class="choice"><input type="radio" name="speakers" value="exact" {% if chosen == 'exact' %}checked{% endif %}> Pontosan <input name="num_speakers" class="num" inputmode="numeric" maxlength="2" value="{{ form.num_speakers or '' }}" aria-label="Beszélők száma"></label>
+  <label class="choice"><input type="radio" name="speakers" value="range" {% if chosen == 'range' %}checked{% endif %}> Legalább <input name="min_speakers" class="num" inputmode="numeric" maxlength="2" value="{{ form.min_speakers or '' }}" aria-label="Legalább ennyi beszélő"> legfeljebb <input name="max_speakers" class="num" inputmode="numeric" maxlength="2" value="{{ form.max_speakers or '' }}" aria-label="Legfeljebb ennyi beszélő"></label>
+  <label class="choice"><input type="radio" name="speakers" value="none" {% if chosen == 'none' %}checked{% endif %}> Beszélők nélkül</label>
+</fieldset>
+{%- endmacro %}
+
+{# A small details popover: rows = list of (label, value); empty values are left out. #}
+{% macro info(rows, title="Részletek") -%}
+<details class="info">
+  <summary aria-label="{{ title }}" title="{{ title }}">ⓘ</summary>
+  <dl>
+    {% for label, value in rows %}{% if value is not none and value != "" %}<dt>{{ label }}</dt><dd>{{ value }}</dd>{% endif %}{% endfor %}
+  </dl>
+</details>
+{%- endmacro %}
+
+{% macro num(n) -%}{{ "{:,}".format(n).replace(",", " ") if n is not none else "" }}{%- endmacro %}
+
+{% macro llm_rows(x, extra=[]) -%}
+{%- set rows = [("Kért modell", x.model or ("szerep: " ~ x.role)), ("Válaszolt", x.model_used if x.model_used and x.model_used != x.model else ""),
+                ("Bemenet", num(x.prompt_tokens) ~ " token" if x.prompt_tokens else ""),
+                ("Kimenet", num(x.completion_tokens) ~ " token" if x.completion_tokens else ""),
+                ("Ebből gondolkodás", num(x.reasoning_tokens) ~ " token" if x.reasoning_tokens else ""),
+                ("Idő", (x.duration_s|round|int) ~ " s" if x.duration_s else ""),
+                ("Utasítás-változat", x.prompt_version), ("Futtató", x.runner_version and ("dwyt-runner " ~ x.runner_version)),
+                ("Készült", x.created_at|local)] + extra -%}
+{{ info(rows) }}
+{%- endmacro %}

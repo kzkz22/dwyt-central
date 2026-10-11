@@ -25,6 +25,10 @@ A szolgáltatás indításkor lefuttatja az új adatbázis-migrációkat. A fut�
 
 Ha a `central.env.example` új beállítást kapott, azt kézzel kell átvenni: `diff /opt/dwyt-central/app/deploy/dwyt-central/central.env.example /etc/dwyt-central/central.env`.
 
+## Régebbi telepítés frissítése körönként
+
+Az alábbi részek csak annak kellenek, aki egy korábbi kör után telepítette a központot. Mindegyik a fenti frissítés mellé ír egyszeri lépéseket; a kihagyott köröket sorban kell pótolni. Új telepítésnél ezek nem kellenek: a [telepites.md](telepites.md) mindent tartalmaz.
+
 ## Frissítés a 3. körre (fordítás, keresés, újrahasznosítás)
 
 Egyszeri lépések, a fenti frissítés **előtt**:

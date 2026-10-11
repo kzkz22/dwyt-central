@@ -137,7 +137,8 @@ def test_retranscription_reuses_another_users_result(alice, bob, anon):
     assert claim(anon, b).status_code == 204  # nothing to do: alice's cloud transcript was taken over
     assert db_rows(f"SELECT t.mode FROM items i JOIN transcripts t ON t.id = i.main_transcript_id "
                    f"WHERE i.id = {bob_item}")[0][0] == "cloud"
-    assert "Felhős átírás (universal-2) · hu (fő)" in bob.get(f"/elem/{bob_item}").text
+    page = bob.get(f"/elem/{bob_item}").text
+    assert "<strong>Felhős átírás (universal-2)</strong>" in page and "fő átirat</span>" in page
     r = post(bob, f"/elem/{bob_item}/ujrairas", {"mode": "cloud", "model_cloud": "auto", "num_speakers": "2"})
     assert r.status_code == 422 and "már van átirata" in r.text
     r = post(bob, f"/elem/{bob_item}/ujrairas", {"mode": "captions", "language": "xyz1"})
@@ -248,3 +249,62 @@ def test_watched_folder_recording_is_retranscribed_by_the_runner_that_has_it(ali
     assert claim(anon, other, caps).status_code == 204
     job = claim(anon, first, caps).json()
     assert job["input"]["source"]["kind"] == "local" and job["input"]["options"]["model"] == "large-v3-turbo"
+
+
+def test_every_transcript_keeps_and_can_get_its_own_translation(alice, anon):
+    token = pair_runner(alice, anon)
+    item_id = submit(alice)
+    deliver(anon, token, language="en", texts=("First version.",))
+    translate_next(anon, token, prefix="HU1")
+    first = db_rows("SELECT id FROM transcripts")[0][0]
+    post(alice, f"/elem/{item_id}/ujrairas", {"mode": "cloud", "model_cloud": "auto", "make_main": "on"})
+    job = claim(anon, token).json()
+    anon.put(f"/runner/v1/jobs/{job['job_id']}/result", headers=runner_headers(token),
+             json=transcript_result(mode="cloud", language="en", texts=("Second version.",)))
+    translate_next(anon, token, prefix="HU2")  # the new main one is translated automatically
+    assert "HU1 First version." in alice.get(f"/elem/{item_id}?atirat={first}").text  # the old one keeps its own
+    assert "HU2 Second version." in alice.get(f"/elem/{item_id}").text
+    # a third, non-main transcript: its translation is asked for on its own
+    post(alice, f"/elem/{item_id}/ujrairas", {"mode": "local", "model_local": "large-v3"})
+    caps = {**CAPS, "transcribe_modes": ["captions", "cloud", "local"], "whisper_models": ["large-v3"]}
+    job = claim(anon, token, caps).json()
+    anon.put(f"/runner/v1/jobs/{job['job_id']}/result", headers=runner_headers(token),
+             json=transcript_result(mode="local", language="en", texts=("Third version.",)))
+    third = db_rows("SELECT max(id) FROM transcripts")[0][0]
+    page = alice.get(f"/elem/{item_id}?atirat={third}").text
+    assert "Magyar fordítás kérése" in page and 'name="transcript_id" value="%d"' % third in page
+    r = post(alice, f"/elem/{item_id}/forditas", {"transcript_id": str(third)})
+    assert r.status_code == 303 and r.headers["location"].endswith("#atirat")
+    job = translate_next(anon, token, prefix="HU3")
+    assert job["input"]["segments"][0]["text"] == "Third version."
+    assert "HU3 Third version." in alice.get(f"/elem/{item_id}?atirat={third}").text
+    assert db_rows(f"SELECT current_translation_id IS NOT NULL FROM items WHERE id = {item_id}")[0][0]
+    assert "HU2 Second version." in alice.get(f"/elem/{item_id}").text  # the main one's stays current
+
+
+def test_item_page_metadata_and_speaker_settings(alice, anon):
+    token = pair_runner(alice, anon)
+    r = post(alice, "/uj", {"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "mode": "cloud",
+                            "model_cloud": "auto", "speakers": "range", "min_speakers": "2", "max_speakers": "4"})
+    item_id = int(r.headers["location"].rsplit("/", 1)[1])
+    job = claim(anon, token).json()
+    assert job["input"]["options"]["min_speakers"] == 2 and job["input"]["options"]["max_speakers"] == 4
+    result = transcript_result(mode="cloud", language="en")
+    result["video"]["published"] = "2025-10-19"
+    result["transcript"]["cloud"] = {"provider": "assemblyai", "audio_seconds": 120, "estimated_cost_usd": 0.01,
+                                     "deleted_at_provider": True}
+    anon.put(f"/runner/v1/jobs/{job['job_id']}/result", json=result, headers=runner_headers(token))
+    page = alice.get(f"/elem/{item_id}").text
+    assert "hqdefault.jpg" in page and "YouTube" in page and "2025-10-19" in page and "nyelv: en" in page
+    assert ">https://www.youtube.com/watch?v=dQw4w9WgXcQ</a>" in page
+    assert "2 sor" in page and "1 beszélő" in page and "legalább 2 legfeljebb 4" in page and "$0.01" in page
+    for form, error in (({"speakers": "exact"}, "Add meg a beszélők számát"),
+                        ({"speakers": "range", "min_speakers": "5", "max_speakers": "2"}, "nem lehet nagyobb"),
+                        ({"speakers": "range"}, "legalább egy határt"), ({"speakers": "valami"}, "Ismeretlen")):
+        r = post(alice, "/uj", {"url": "https://www.youtube.com/watch?v=aaaaaaaaaaa", "mode": "local", **form})
+        assert r.status_code == 422 and error in r.text
+    post(alice, "/uj", {"url": "https://www.youtube.com/watch?v=bbbbbbbbbbb", "mode": "local", "speakers": "none"})
+    caps = {**CAPS, "transcribe_modes": ["captions", "cloud", "local"], "whisper_models": ["large-v3"]}
+    jobs_seen = [claim(anon, token, caps).json() for _ in range(2)]  # the first item's translation, then this
+    local = next(j for j in jobs_seen if j["kind"] == "transcribe")
+    assert local["input"]["options"]["diarize"] is False

@@ -288,14 +288,17 @@ def legutobbiak(darab: int = 10, csatorna: str | None = None, csak_osszefoglalov
 def atiras_inditasa(url: str | None = None, elem_id: int | None = None,
                     mod: Literal["captions", "local", "cloud"] = "captions", modell: str | None = None,
                     nyelv: str | None = None, beszelok_szama: int | None = None,
-                    osszefoglalo: bool = True, fo_atirat: bool = False) -> dict[str, Any]:
+                    beszelok_min: int | None = None, beszelok_max: int | None = None,
+                    beszelok_nelkul: bool = False, osszefoglalo: bool = True,
+                    fo_atirat: bool = False) -> dict[str, Any]:
     """Átírás indítása egy videó URL-jére (új elem), vagy egy meglévő elem újraírása más móddal.
     A munkát a felhasználó saját futtatója végzi.
 
     mod: captions (YouTube saját felirata: gyors, ingyenes, beszélők nélkül; alapértelmezés) | local (helyi
     Whisper a felhasználó GPU-ján, beszélőkkel) | cloud (felhős AssemblyAI; pénzbe kerül, CSAK ha a felhasználó
     kifejezetten kéri). modell: local: large-v3 | large-v3-turbo; cloud: auto | universal-2 | universal-3-5-pro.
-    nyelv: kétbetűs kód (hu, en…), üresen automatikus. beszelok_szama: ha pontosan tudott.
+    nyelv: kétbetűs kód (hu, en…), üresen automatikus. beszelok_szama: ha pontosan tudott; vagy
+    beszelok_min / beszelok_max: legalább / legfeljebb ennyi; beszelok_nelkul: beszélők szétválasztása nélkül.
     fo_atirat: újraírásnál az új átirat legyen a fő átirat. Visszaad egy elem_id-t (és ha munka indult, a
     munka_id-t): a munka_allapota eszközzel követhető."""
     caller = _caller()
@@ -303,7 +306,10 @@ def atiras_inditasa(url: str | None = None, elem_id: int | None = None,
         raise ToolFailure("Ez a token nem indíthat munkát.")
     if bool(url) == bool(elem_id):
         raise ToolFailure("Vagy url-t, vagy elem_id-t adj meg (egyszerre csak az egyiket).")
-    form = {"mode": mod, "language": nyelv or "", "num_speakers": str(beszelok_szama or ""),
+    speakers = ("none" if beszelok_nelkul else "exact" if beszelok_szama
+                else "range" if (beszelok_min or beszelok_max) else "auto")
+    form = {"mode": mod, "language": nyelv or "", "speakers": speakers, "num_speakers": str(beszelok_szama or ""),
+            "min_speakers": str(beszelok_min or ""), "max_speakers": str(beszelok_max or ""),
             "model_local": modell or "", "model_cloud": modell or ""}
     options, errors = submit_mod.parse_options(form)
     if errors:

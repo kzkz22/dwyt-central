@@ -371,6 +371,7 @@ class YoutubeLink(Base):
     synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     sync_error: Mapped[str | None] = mapped_column(Text)
     sync_count: Mapped[int | None] = mapped_column(Integer)
+    sync_total: Mapped[int | None] = mapped_column(Integer)  # what YouTube reported (pageInfo.totalResults)
 
 
 # ---- notifications (round 4b) ---------------------------------------------------------------

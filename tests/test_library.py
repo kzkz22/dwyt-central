@@ -208,8 +208,8 @@ def test_a_finished_transcript_is_taken_over_with_summary_and_translation(alice,
     item_id = submit(bob, summarize=True)
     assert claim(anon, b).status_code == 204  # nothing for bob's runner: no cost, no wait
     page = bob.get(f"/elem/{item_id}").text
-    assert "átvett átirat" in page and "Good morning." in page and "HU Good morning." in page
-    assert "A kertről." in page and page.count(">átvett<") == 2  # summary and translation
+    assert "Good morning." in page and "HU Good morning." in page
+    assert "A kertről." in page and page.count(">átvett<") == 3  # transcript, summary and translation
     assert "alice" not in page.lower()  # never whose it was
     assert "Újra, a saját futtatómmal" in page
 
@@ -245,4 +245,4 @@ def test_own_rerun_replaces_a_taken_over_main_transcript(alice, bob, anon):
     deliver(anon, b, texts=("Bob saját szövege.",))
     page = bob.get(f"/elem/{item_id}").text
     assert "Bob saját szövege." in page and "Újra, a saját futtatómmal" not in page
-    assert "(fő)" in page  # both transcripts listed, the own one is the main
+    assert page.count("<li class=") >= 2 and "fő átirat</span>" in page  # both listed, the own one is the main
