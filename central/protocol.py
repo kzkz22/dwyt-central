@@ -159,9 +159,11 @@ def approve_pairing(user_id: int, code: str, name: str) -> bool:
 # ---- jobs ---------------------------------------------------------------------------------
 
 class Capabilities(BaseModel):
-    kinds: list[Literal["transcribe", "summarize"]] = []
-    transcribe_modes: list[Literal["captions", "cloud", "local"]] = []
-    llm_roles: list[Literal["public", "private"]] = []
+    # plain strings: a newer runner may announce kinds/modes this central does not know yet;
+    # they simply never match a job
+    kinds: list[Short] = Field(default_factory=list, max_length=20)
+    transcribe_modes: list[Short] = Field(default_factory=list, max_length=20)
+    llm_roles: list[Short] = Field(default_factory=list, max_length=20)
     allowed_domains: list[Short] = Field(default_factory=list, max_length=100)
     max_upload_bytes: int | None = None
     local_sources: bool = False
@@ -296,6 +298,27 @@ class SummaryResult(BaseModel):
     duration_s: float | None = None
 
 
+class TranslatedLine(BaseModel):
+    idx: int = Field(ge=0)
+    text: str = Field(max_length=20000)
+
+
+class TranslateResult(BaseModel):
+    language: str = Field(default="hu", max_length=20)
+    model: str | None = Field(default=None, max_length=200)
+    model_used: str | None = Field(default=None, max_length=200)
+    prompt_version: int = 0
+    segments: list[TranslatedLine] = Field(min_length=1, max_length=200000)
+    missing: int = 0
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    reasoning_tokens: int | None = None
+    duration_s: float | None = None
+
+
+RESULT_MODELS = {"transcribe": TranscribeResult, "summarize": SummaryResult, "translate": TranslateResult}
+
+
 def _job_kind(runner: Runner, job_id: int) -> str | None:
     with db.system_session() as s:
         job = s.get(Job, job_id)
@@ -309,7 +332,7 @@ async def result(job_id: int, request: Request, runner: Runner = Depends(current
         return _error(404, "no such job")
     try:
         raw = await request.json()
-        model = (TranscribeResult if kind == "transcribe" else SummaryResult).model_validate(raw)
+        model = RESULT_MODELS[kind].model_validate(raw)
     except (ValueError, ValidationError) as exc:
         return _error(422, f"invalid result: {str(exc)[:1000]}")
     status, data = await run_in_threadpool(_protocol_call, jobs.store_result, runner, job_id,

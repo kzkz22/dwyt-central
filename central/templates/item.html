@@ -13,7 +13,7 @@
   <a href="{{ item.source.url }}" rel="noopener noreferrer" target="_blank">eredeti</a>
 </p>
 {% for job in item_jobs if job.state in ('queued', 'running') %}
-<p class="warn-box">{{ 'Átírás' if job.kind == 'transcribe' else 'Összefoglaló' }}: {{ state_labels[job.state] }}{% if job.stage and job.state == 'running' %} – {{ stage_label(job.stage) }}{% endif %}{% if job.error %} ({{ job.error }}){% endif %} · <a href="/munkak">Munkák</a></p>
+<p class="warn-box">{{ kind_labels.get(job.kind, job.kind) }}: {{ state_labels[job.state] }}{% if job.stage and job.state == 'running' %} – {{ stage_label(job.stage) }}{% endif %}{% if job.error %} ({{ job.error }}){% endif %} · <a href="/munkak">Munkák</a></p>
 {% endfor %}
 {% for job in item_jobs if job.state == 'failed' %}{% if loop.first %}
 <p class="error">Legutóbbi hiba: {{ job.error }} · <a href="/munkak">Munkák</a></p>
@@ -28,20 +28,42 @@
   {% endif %}</div>
   {% if summary %}
   <div class="summary">{% for line in summary.text.splitlines() %}{% if line.startswith('## ') %}<h3>{{ line[3:] }}</h3>{% elif line.startswith('- ') %}<p class="point">• {{ line[2:] }}</p>{% elif line.strip() %}<p>{{ line }}</p>{% endif %}{% endfor %}</div>
-  <p class="meta">{{ summary.model_used or summary.model or summary.role }} · {{ summary.created_at|local }}{% if summary.prompt_tokens %} · {{ summary.prompt_tokens }} + {{ summary.completion_tokens or 0 }} token{% endif %}{% if summary.duration_s %} · {{ summary.duration_s|round(0)|int }} s{% endif %}</p>
+  <p class="meta">{{ summary.model_used or summary.model or summary.role }}{% if reused.summary %} · <span class="badge">átvett</span>{% endif %} · {{ summary.created_at|local }}{% if summary.prompt_tokens %} · {{ summary.prompt_tokens }} + {{ summary.completion_tokens or 0 }} token{% endif %}{% if summary.duration_s %} · {{ summary.duration_s|round(0)|int }} s{% endif %}</p>
   {% else %}<p class="muted">Még nincs összefoglaló.</p>{% endif %}
 </section>
 
-<section class="card">
-  <h2>Átirat</h2>
+<section class="card transcript">
+  <div class="bar"><h2>Átirat</h2>
+  {% if translation %}
+  <nav class="views" aria-label="Nézet">
+    {% for key, label in [('eredeti', 'Eredeti'), ('magyar', 'Magyar'), ('mindketto', 'Mindkettő')] %}
+    <a href="/elem/{{ item.id }}?nezet={{ key }}{% if transcript and transcript.id != item.main_transcript_id %}&amp;atirat={{ transcript.id }}{% endif %}" class="{{ 'active' if view == key }}">{{ label }}</a>
+    {% endfor %}
+  </nav>
+  {% elif can_translate and not translating %}
+  <form method="post" action="/elem/{{ item.id }}/forditas" class="inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="secondary small">Magyar fordítás kérése</button>
+  </form>
+  {% elif translating %}<span class="muted">A fordítás készül…</span>{% endif %}
+  </div>
   {% if transcripts|length > 1 %}
   <p class="actions">{% for t in transcripts %}<a href="/elem/{{ item.id }}?atirat={{ t.id }}" class="badge {% if transcript and t.id == transcript.id %}cloud{% endif %}">{{ describe_transcript(t) }}{% if t.id == item.main_transcript_id %} (fő){% endif %}</a>{% endfor %}</p>
   {% endif %}
   {% if transcript %}
-  <p class="meta">{{ describe_transcript(transcript) }} · nyelv: {{ transcript.language or '?' }}{% if transcript.cloud and transcript.cloud.estimated_cost_usd is not none %} · kb. {{ transcript.cloud.estimated_cost_usd }} USD{% endif %}{% if transcript.elapsed_s %} · {{ transcript.elapsed_s|round(0)|int }} s{% endif %}</p>
+  <p class="meta">{{ describe_transcript(transcript) }}{% if transcript.id in reused.transcript %} · <span class="badge">átvett átirat</span>{% endif %} · nyelv: {{ transcript.language or '?' }}{% if transcript.cloud and transcript.cloud.estimated_cost_usd is not none %} · kb. {{ transcript.cloud.estimated_cost_usd }} USD{% endif %}{% if transcript.elapsed_s %} · {{ transcript.elapsed_s|round(0)|int }} s{% endif %}</p>
+  {% if translation %}<p class="meta">Magyar fordítás: {{ translation.model_used or translation.model or translation.role }}{% if reused.translation %} · <span class="badge">átvett</span>{% endif %}{% if translation.missing %} · {{ translation.missing }} sor fordítás nélkül{% endif %}</p>{% endif %}
+  {% if transcript.id in reused.transcript and transcript.id == item.main_transcript_id %}
+  <form method="post" action="/elem/{{ item.id }}/sajat" class="inline confirm" data-confirm="Új átirat készül a saját futtatóddal, ugyanezekkel a beállításokkal. Indulhat?">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="secondary small">Újra, a saját futtatómmal</button>
+  </form>
+  {% endif %}
   {% for w in transcript.warnings %}<p class="warn-box">{{ w }}</p>{% endfor %}
   {% for p in paragraphs %}
-  <p class="para"><span class="ts">{% if links[p.start] %}<a href="{{ links[p.start] }}" rel="noopener noreferrer" target="_blank">[{{ hms(p.start) }}]</a>{% else %}[{{ hms(p.start) }}]{% endif %}</span>{% if p.speaker %} <strong>{{ p.speaker }}:</strong>{% endif %} {{ p.text }}</p>
+  <div class="para{% if view == 'mindketto' %} pair{% endif %}" id="t{{ p.start|int }}">
+    <span class="lead"><span class="ts">{% if links[p.start] %}<a href="{{ links[p.start] }}" rel="noopener noreferrer" target="_blank">[{{ hms(p.start) }}]</a>{% else %}[{{ hms(p.start) }}]{% endif %}</span>{% if p.speaker %} <strong>{{ p.speaker }}:</strong>{% endif %}</span>
+    {% if view in ('eredeti', 'mindketto') %}<p class="orig">{{ p.text }}</p>{% endif %}
+    {% if view in ('magyar', 'mindketto') %}<p class="hu">{{ p.hu or '–' }}</p>{% endif %}
+  </div>
   {% endfor %}
   {% else %}<p class="muted">Még nincs átirat.</p>{% endif %}
 </section>

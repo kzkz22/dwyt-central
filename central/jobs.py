@@ -15,10 +15,11 @@ from typing import Any
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session as DbSession
 
-from . import sources
+from . import indexing, sources
 from .config import Settings
 from .db import utcnow
-from .models import Item, ItemSummary, ItemTranscript, Job, Runner, Segment, Source, Summary, Transcript
+from .models import (Item, ItemSummary, ItemTranscript, ItemTranslation, Job, Runner, Segment, Source, Summary,
+                     Transcript, Translation, TranslationSegment, User)
 
 RETRY_MINUTES = (1, 5, 15, 60, 180, 360)
 STAGE_LABELS = {
@@ -26,8 +27,10 @@ STAGE_LABELS = {
     "prepare-audio": "Hang előkészítése", "upload": "Feltöltés a felhőbe", "transcribe": "Átírás",
     "summarize": "Összefoglaló írása", "write": "Mentés", "starting": "Indul",
     "waiting-for-gpu": "Vár a GPU-ra", "load-audio": "Hang betöltése", "align": "Igazítás",
-    "diarize": "Beszélők szétválasztása",
+    "diarize": "Beszélők szétválasztása", "translate": "Fordítás",
 }
+KIND_LABELS = {"transcribe": "Átírás", "summarize": "Összefoglaló", "translate": "Fordítás"}
+TRANSLATION_TARGET = "hu"
 STATE_LABELS = {"queued": "Sorban", "running": "Fut", "done": "Kész", "failed": "Hiba", "cancelled": "Megszakítva"}
 CAPTIONS_SUMMARY_LANGUAGE = "hu"
 
@@ -55,6 +58,20 @@ def enqueue_transcription(s: DbSession, user_id: int, item: Item, source: Source
                "options": options, "summarize": summarize}
     job = Job(user_id=user_id, item_id=item.id, kind="transcribe", state="queued", stage="queued",
               title=(source.meta or {}).get("title") or source.url, payload=payload, progress={})
+    s.add(job)
+    s.flush()
+    return job
+
+
+def needs_translation(language: str | None) -> bool:
+    return bool(language) and not language.lower().startswith(TRANSLATION_TARGET)
+
+
+def enqueue_translation(s: DbSession, user_id: int, item: Item, transcript_id: int, title: str | None) -> Job:
+    payload = {"transcript_id": transcript_id, "role": "public" if item.is_public else "private",
+               "target": TRANSLATION_TARGET}
+    job = Job(user_id=user_id, item_id=item.id, kind="translate", state="queued", stage="queued",
+              title=title, payload=payload, progress={})
     s.add(job)
     s.flush()
     return job
@@ -99,7 +116,7 @@ def fits(job: Job, caps: dict[str, Any]) -> bool:
             return False
         url = (job.payload.get("source") or {}).get("url") or ""
         return sources.domain_allowed(url, caps.get("allowed_domains"))
-    if job.kind == "summarize":
+    if job.kind in ("summarize", "translate"):
         return job.payload.get("role") in (caps.get("llm_roles") or [])
     return False
 
@@ -147,6 +164,11 @@ def job_input(s: DbSession, job: Job) -> dict[str, Any]:
         raise ProtocolError(410, "transcript gone")
     src = s.get(Source, t.source_id)
     meta = src.meta or {}
+    if job.kind == "translate":
+        return {"role": job.payload["role"], "source_language": t.language,
+                "target": job.payload.get("target", TRANSLATION_TARGET),
+                "meta": {"title": meta.get("title"), "channel": meta.get("channel"), "url": src.url},
+                "segments": [{"idx": g.idx, "text": g.text} for g in t.segments]}
     return {
         "role": job.payload["role"], "language": job.payload.get("language", "hu"),
         "meta": {"title": meta.get("title"), "channel": meta.get("channel"),
@@ -224,13 +246,29 @@ def store_transcription(s: DbSession, runner: Runner, job: Job, result: dict[str
     s.add_all(Segment(transcript_id=t.id, idx=i, start_s=float(g["start"]), end_s=float(g["end"]),
                       speaker=g.get("speaker"), text=str(g["text"])) for i, g in enumerate(segments))
     s.add(ItemTranscript(item_id=item.id, transcript_id=t.id, user_id=job.user_id))
-    if item.main_transcript_id is None:
+    if item.main_transcript_id is None or job.payload.get("make_main"):
         item.main_transcript_id = t.id
+        item.current_translation_id = None  # the old main's translation and summary do not fit any more
+        if job.payload.get("make_main"):
+            item.current_summary_id = None
     item.updated_at = utcnow()
     _finish(job, {"transcript_id": t.id})
-    if job.payload.get("summarize") and item.main_transcript_id == t.id:
-        enqueue_summary(s, job.user_id, item, t.id, src.meta.get("title") or src.url)
+    if item.main_transcript_id == t.id:
+        after_main_transcript(s, job.user_id, item, t, bool(job.payload.get("summarize")))
     return t
+
+
+def after_main_transcript(s: DbSession, user_id: int, item: Item, t: Transcript, summarize: bool) -> None:
+    """The follow-up steps of a new main transcript: summary (if asked), translation (if not
+    Hungarian and the user wants it automatically), search index."""
+    src = s.get(Source, item.source_id)
+    title = (src.meta or {}).get("title") or src.url
+    if summarize:
+        enqueue_summary(s, user_id, item, t.id, title)
+    user = s.get(User, user_id)
+    if needs_translation(t.language) and (user is None or user.translate_auto):
+        enqueue_translation(s, user_id, item, t.id, title)
+    indexing.enqueue(s, item)
 
 
 def store_summary(s: DbSession, runner: Runner, job: Job, result: dict[str, Any]) -> Summary:
@@ -254,9 +292,48 @@ def store_summary(s: DbSession, runner: Runner, job: Job, result: dict[str, Any]
     s.add(ItemSummary(item_id=item.id, summary_id=summary.id, user_id=job.user_id))
     if item.main_transcript_id == tid:
         item.current_summary_id = summary.id
+        indexing.enqueue(s, item)
     item.updated_at = utcnow()
     _finish(job, {"summary_id": summary.id})
     return summary
+
+
+def store_translation(s: DbSession, runner: Runner, job: Job, result: dict[str, Any]) -> Translation:
+    item = s.get(Item, job.item_id)
+    if item is None:
+        raise ProtocolError(410, "the item was deleted")
+    tid = job.payload["transcript_id"]
+    t = s.get(Transcript, tid)
+    if t is None:
+        raise ProtocolError(410, "transcript gone")
+    known = {g.idx for g in t.segments}
+    lines = [g for g in result["segments"] if g["idx"] in known]
+    tr = Translation(
+        transcript_id=tid, role=job.payload["role"], language=result.get("language") or TRANSLATION_TARGET,
+        recipe_hash=translation_recipe(tid, int(result.get("prompt_version") or 0),
+                                       result.get("language") or TRANSLATION_TARGET),
+        source_language=t.language, model=result.get("model"), model_used=result.get("model_used"),
+        prompt_version=int(result.get("prompt_version") or 0), segment_count=len(known),
+        missing=len(known) - len(lines), prompt_tokens=result.get("prompt_tokens"),
+        completion_tokens=result.get("completion_tokens"), reasoning_tokens=result.get("reasoning_tokens"),
+        duration_s=result.get("duration_s"), private=not item.is_public, shareable=item.is_public,
+        origin_user_id=job.user_id, runner_version=runner.version)
+    s.add(tr)
+    s.flush()
+    s.add_all(TranslationSegment(translation_id=tr.id, idx=int(g["idx"]), text=str(g["text"])) for g in lines)
+    s.add(ItemTranslation(item_id=item.id, translation_id=tr.id, user_id=job.user_id))
+    if item.main_transcript_id == tid:
+        item.current_translation_id = tr.id
+        indexing.enqueue(s, item)
+    item.updated_at = utcnow()
+    _finish(job, {"translation_id": tr.id})
+    return tr
+
+
+def translation_recipe(transcript_id: int, prompt_version: int, language: str) -> str:
+    """Reusable for anyone with the same transcript: the model is the runner's business."""
+    return recipe_hash({"transcript": transcript_id, "prompt_version": prompt_version, "language": language,
+                        "kind": "translation"})
 
 
 def _finish(job: Job, ref: dict[str, Any]) -> None:
@@ -277,6 +354,8 @@ def store_result(s: DbSession, runner: Runner, job_id: int, result: dict[str, An
         raise ProtocolError(409, "the job is not running on this runner")
     if job.kind == "transcribe":
         store_transcription(s, runner, job, result)
+    elif job.kind == "translate":
+        store_translation(s, runner, job, result)
     else:
         store_summary(s, runner, job, result)
     return job.progress["result"]

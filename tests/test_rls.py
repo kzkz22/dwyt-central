@@ -50,3 +50,26 @@ def test_other_users_item_page_is_not_found(alice, bob):
     assert bob.get(item_url).status_code == 404
     assert post(bob, item_url + "/torles").status_code == 303
     assert alice.get(item_url).status_code == 200  # bob could not delete it
+
+
+def test_migration_0002_upgrades_an_existing_library(configured):
+    from alembic import command
+    from alembic.config import Config
+    from conftest import ROOT
+
+    from central import db
+    cfg = Config(str(ROOT / "alembic.ini"))
+    cfg.set_main_option("script_location", str(ROOT / "migrations"))
+    command.downgrade(cfg, "0001")
+    try:
+        with db.system_engine().begin() as conn:
+            uid = conn.execute(text("INSERT INTO users (email) VALUES ('old@example.com') RETURNING id")).scalar()
+            sid = conn.execute(text("INSERT INTO sources (kind, key, url) VALUES ('youtube', 'youtube:old', 'u') "
+                                    "RETURNING id")).scalar()
+            conn.execute(text("INSERT INTO items (user_id, source_id, is_public) VALUES (:u, :s, true)"),
+                         {"u": uid, "s": sid})
+    finally:
+        command.upgrade(cfg, "head")
+    with db.system_engine().begin() as conn:
+        assert conn.execute(text("SELECT count(*) FROM index_queue")).scalar() == 1
+        assert conn.execute(text("SELECT translate_auto FROM users WHERE id = :u"), {"u": uid}).scalar() is True

@@ -138,3 +138,16 @@ details.info dd { margin: 0; overflow-wrap: anywhere; }
 .summary .point { margin: 0.2rem 0; }
 .para .ts { color: var(--muted); font-variant-numeric: tabular-nums; }
 code { background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; word-break: break-all; }
+/* transcript with its translation side by side */
+.transcript .para .orig, .transcript .para .hu { display: inline; margin: 0; }
+.transcript .pair { display: grid; grid-template-columns: auto 1fr 1fr; gap: 4px 14px; align-items: start; }
+.transcript .pair .lead { grid-row: 1; white-space: nowrap; }
+.transcript .pair .orig, .transcript .pair .hu { display: block; margin: 0; }
+@media (max-width: 720px) { .transcript .pair { grid-template-columns: 1fr; } }
+.results { list-style: none; padding: 0; }
+.hits { list-style: none; padding: 0; margin: 6px 0 0; }
+.hits li { margin: 6px 0; }
+.snippet { margin-top: 2px; }
+mark { background: var(--warn-bg); color: inherit; padding: 0 1px; }
+.badge.meaning { border-style: dashed; }
+.notice { background: var(--warn-bg); border-radius: 8px; padding: 8px 12px; }

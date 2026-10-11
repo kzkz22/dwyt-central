@@ -145,6 +145,27 @@ def check() -> None:
     print(f"cím: {settings.base_url}  (Google visszairányítás: {settings.redirect_uri})")
     print("Google-belépés: " + ("beállítva" if settings.google_client_id else "nincs beállítva"))
     print(f"regisztráció: {settings.registration}")
+    from . import embed_client
+    if not settings.embed_url:
+        print("keresés: csak szöveges (EMBED_URL üres)")
+    else:
+        health = embed_client.health(settings.embed_url)
+        if health is None:
+            print(f"figyelem: a beágyazó szolgáltatás nem érhető el ({settings.embed_url}); a keresés csak szöveges, "
+                  "amíg el nem indul (systemctl status dwyt-central-embed)")
+        else:
+            print("beágyazó szolgáltatás: " + ("rendben" if health.get("ok") else "még tölt" if health.get("loading")
+                                               else f"HIBA: {health.get('error')}") + f" ({health.get('model')})")
+    try:
+        with db.system_session() as s:
+            ext = s.execute(text("SELECT extname FROM pg_extension WHERE extname IN ('vector', 'unaccent', 'pg_trgm')"))
+            missing = {"vector", "unaccent", "pg_trgm"} - set(ext.scalars().all())
+            waiting = s.scalar(text("SELECT count(*) FROM index_queue"))
+        print("bővítmények: " + ("rendben" if not missing else f"HIBA: hiányzik {', '.join(sorted(missing))}"))
+        ok &= not missing
+        print(f"indexelésre vár: {waiting} elem")
+    except Exception as exc:  # noqa: BLE001
+        print(f"index: HIBA: {exc}")
     if settings.base_url.startswith("https://") and not settings.cookie_secure:
         print("figyelem: HTTPS mellett COOKIE_SECURE=true legyen")
     trusted = os.environ.get("FORWARDED_ALLOW_IPS", "").strip()

@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Beállítások{% endblock %}
+{% block content %}
+<h1>Beállítások</h1>
+{% if saved %}<p class="notice" role="status">Mentve.</p>{% endif %}
+<form method="post" action="/beallitasok" class="card">
+  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+  <label class="choice"><input type="checkbox" name="translate_auto" {% if translate_auto %}checked{% endif %}> Nem magyar átirat magyar fordítása magától</label>
+  <p class="muted">Ha ki van kapcsolva, a fordítás csak az elem oldalán, kérésre indul. A fordítást a futtatód végzi a saját LLM-jével; felhős modellnél ez költséggel jár.</p>
+  <p><button>Mentés</button></p>
+</form>
+{% endblock %}

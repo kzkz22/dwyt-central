@@ -33,6 +33,7 @@ class User(Base):
     disabled: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = _now()
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    translate_auto: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
 class Invite(Base):
@@ -166,6 +167,39 @@ class Summary(Base):
     created_at: Mapped[datetime] = _now()
 
 
+class Translation(Base):
+    __tablename__ = "translations"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    transcript_id: Mapped[int] = mapped_column(ForeignKey("transcripts.id", ondelete="CASCADE"))
+    recipe_hash: Mapped[str] = mapped_column(Text)
+    role: Mapped[str] = mapped_column(Text)
+    language: Mapped[str] = mapped_column(Text)
+    source_language: Mapped[str | None] = mapped_column(Text)
+    model: Mapped[str | None] = mapped_column(Text)
+    model_used: Mapped[str | None] = mapped_column(Text)
+    prompt_version: Mapped[int] = mapped_column(Integer)
+    segment_count: Mapped[int] = mapped_column(Integer, default=0)
+    missing: Mapped[int] = mapped_column(Integer, default=0)
+    prompt_tokens: Mapped[int | None] = mapped_column(Integer)
+    completion_tokens: Mapped[int | None] = mapped_column(Integer)
+    reasoning_tokens: Mapped[int | None] = mapped_column(Integer)
+    duration_s: Mapped[float | None] = mapped_column(Float)
+    private: Mapped[bool] = mapped_column(Boolean, default=False)
+    shareable: Mapped[bool] = mapped_column(Boolean, default=True)
+    origin_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    runner_version: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = _now()
+    segments: Mapped[list[TranslationSegment]] = relationship(
+        order_by="TranslationSegment.idx", lazy="selectin", cascade="all, delete-orphan", passive_deletes=True)
+
+
+class TranslationSegment(Base):
+    __tablename__ = "translation_segments"
+    translation_id: Mapped[int] = mapped_column(ForeignKey("translations.id", ondelete="CASCADE"), primary_key=True)
+    idx: Mapped[int] = mapped_column(Integer, primary_key=True)
+    text: Mapped[str] = mapped_column(Text)
+
+
 class Item(Base):
     __tablename__ = "items"
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -175,6 +209,7 @@ class Item(Base):
     is_public: Mapped[bool] = mapped_column(Boolean)
     main_transcript_id: Mapped[int | None] = mapped_column(ForeignKey("transcripts.id", ondelete="SET NULL"))
     current_summary_id: Mapped[int | None] = mapped_column(ForeignKey("summaries.id", ondelete="SET NULL"))
+    current_translation_id: Mapped[int | None] = mapped_column(ForeignKey("translations.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = _now()
     updated_at: Mapped[datetime] = _now()
     source: Mapped[Source] = relationship(lazy="joined")
@@ -198,6 +233,25 @@ class ItemSummary(Base):
     added_at: Mapped[datetime] = _now()
 
 
+class ItemTranslation(Base):
+    __tablename__ = "item_translations"
+    item_id: Mapped[int] = mapped_column(ForeignKey("items.id", ondelete="CASCADE"), primary_key=True)
+    translation_id: Mapped[int] = mapped_column(ForeignKey("translations.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    reused: Mapped[bool] = mapped_column(Boolean, default=False)
+    added_at: Mapped[datetime] = _now()
+
+
+class IndexQueue(Base):
+    __tablename__ = "index_queue"
+    item_id: Mapped[int] = mapped_column(ForeignKey("items.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    queued_at: Mapped[datetime] = _now()
+    run_after: Mapped[datetime] = _now()
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    error: Mapped[str | None] = mapped_column(Text)
+
+
 JOB_STATES = ("queued", "running", "done", "failed", "cancelled")
 ACTIVE = ("queued", "running")
 
@@ -207,7 +261,7 @@ class Job(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     item_id: Mapped[int | None] = mapped_column(ForeignKey("items.id", ondelete="CASCADE"))
-    kind: Mapped[str] = mapped_column(Text)  # transcribe | summarize
+    kind: Mapped[str] = mapped_column(Text)  # transcribe | summarize | translate
     state: Mapped[str] = mapped_column(Text, default="queued")
     title: Mapped[str | None] = mapped_column(Text)
     payload: Mapped[dict[str, Any]] = mapped_column(default=dict)

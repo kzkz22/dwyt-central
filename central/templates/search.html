@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Keresés{% endblock %}
+{% block content %}
+<h1>Keresés</h1>
+<form method="get" action="/kereses" class="card search-form">
+  <div class="search">
+    <input name="q" value="{{ q }}" placeholder="Mit keresel? Szó, kifejezés vagy egy kérdés" aria-label="Keresés" autofocus>
+    <button>Keresés</button>
+  </div>
+  <label class="choice"><input type="checkbox" name="pontos" {% if exact %}checked{% endif %}> Csak pontos egyezés</label>
+  <details {% if filters.channel or filters.language or filters.mode or filters.date_from or filters.date_to %}open{% endif %}>
+    <summary>Szűrők</summary>
+    <div class="grid">
+      <label>Csatorna
+        <select name="csatorna"><option value="">mind</option>{% for c in channels %}<option {% if filters.channel == c %}selected{% endif %}>{{ c }}</option>{% endfor %}</select>
+      </label>
+      <label>Nyelv <input name="nyelv" value="{{ filters.language }}" placeholder="hu, en …" maxlength="3"></label>
+      <label>Átirat módja
+        <select name="mod"><option value="">mind</option>{% for key, label in modes.items() %}<option value="{{ key }}" {% if filters.mode == key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+      </label>
+      <label>Dátumtól <input type="date" name="tol" value="{{ filters.date_from or '' }}"></label>
+      <label>Dátumig <input type="date" name="ig" value="{{ filters.date_to or '' }}"></label>
+    </div>
+  </details>
+  {% if index_status.waiting %}<p class="muted">{{ index_status.waiting }} elem még indexelés alatt van; ezek később lesznek kereshetők.</p>{% endif %}
+</form>
+
+{% if outcome %}
+  {% if outcome.meaning_error %}<p class="warn-box">A jelentés szerinti keresés most nem érhető el, csak szöveges találatok látszanak.</p>{% endif %}
+  {% if not outcome.results %}<p class="card">Nincs találat.</p>{% endif %}
+  <ul class="results">
+  {% for r in outcome.results %}
+    {% set it = r.item %}
+    <li class="result card">
+      <a href="/elem/{{ it.id }}" class="title">{{ it.title }}</a>
+      <div class="meta">{% if it.channel %}{{ it.channel }}{% endif %}{% if it.language %} · {{ it.language }}{% endif %}{% if it.mode %} · {{ modes.get(it.mode, it.mode) }}{% endif %}</div>
+      <ul class="hits">
+      {% for h in r.hits %}
+        {% set shown, side = best_text(h, q) %}
+        <li>
+          <span class="badge {{ 'literal' if h.literal else 'meaning' }}">{{ 'szó szerint' if h.literal else 'hasonló jelentés' }}</span>
+          {% if h.kind == 'transcript' %}
+            <span class="ts">{{ hms(h.start_s) }}</span>
+            {% if links[(it.id, h.chunk_id)] %}<a class="ext" href="{{ links[(it.id, h.chunk_id)] }}" target="_blank" rel="noreferrer noopener" title="Megnyitás ennél a pontnál">▶</a>{% endif %}
+          {% elif h.kind == 'summary' %}<span class="muted">összefoglaló</span>
+          {% else %}<span class="muted">cím, csatorna</span>{% endif %}
+          {% if side == 'magyar' %}<span class="muted">(a magyar fordításból)</span>{% endif %}
+          <div class="snippet">{{ snippet(shown, q) }}</div>
+        </li>
+      {% endfor %}
+      </ul>
+    </li>
+  {% endfor %}
+  </ul>
+{% endif %}
+{% endblock %}

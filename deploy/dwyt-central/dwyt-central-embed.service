@@ -1,0 +1,28 @@
+# dwyt central: the embedding service (bge-m3 on the CPU, ~2.2 GB RAM) for meaning-based search.
+# Listens on localhost only. Install: /etc/systemd/system/dwyt-central-embed.service (docs/telepites.md)
+[Unit]
+Description=dwyt central embedding service (bge-m3)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=dwyt
+Group=dwyt
+EnvironmentFile=/etc/dwyt-central/central.env
+# the model files (downloaded once, ~2.2 GB)
+Environment=HF_HOME=/var/lib/dwyt/hf
+WorkingDirectory=/opt/dwyt-central/app
+ExecStart=/opt/dwyt-central/venv/bin/uvicorn central.embedder:app --host 127.0.0.1 --port 8001 --workers 1 --no-server-header
+Restart=on-failure
+RestartSec=10
+# indexing must not slow the web service or the other containers on the host
+Nice=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/dwyt
+
+[Install]
+WantedBy=multi-user.target

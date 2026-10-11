@@ -1,6 +1,6 @@
 [project]
 name = "dwyt-central"
-version = "0.1.0"
+version = "0.3.0"
 description = "dwyt central service: web UI, sign-in, per-user libraries, job queue for runners"
 requires-python = ">=3.11"
 license = "AGPL-3.0-only"
@@ -20,6 +20,8 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest>=8", "ruff>=0.6"]
+# the embedding service (dwyt-central-embed); install torch's CPU build first (docs/telepites.md)
+embed = ["sentence-transformers>=3.0"]
 
 [project.scripts]
 dwyt-central = "central.cli:main"

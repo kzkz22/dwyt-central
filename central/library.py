@@ -20,9 +20,18 @@ def turns(segments: list[Any], max_chars: int = 900, max_gap: float = 20.0) -> l
                 and len(cur["text"]) + 1 + len(seg.text) <= max_chars and seg.start_s - cur["end"] <= max_gap):
             cur["text"] += " " + seg.text
             cur["end"] = seg.end_s
+            cur["idx"].append(seg.idx)
         else:
-            out.append({"start": seg.start_s, "end": seg.end_s, "speaker": seg.speaker, "text": seg.text})
+            out.append({"start": seg.start_s, "end": seg.end_s, "speaker": seg.speaker, "text": seg.text,
+                        "idx": [seg.idx]})
     return out
+
+
+def with_translation(paragraphs: list[dict], hu: dict[int, str] | None) -> list[dict]:
+    """Adds the Hungarian text of each paragraph (the translated lines of its segments)."""
+    for p in paragraphs:
+        p["hu"] = " ".join(hu[i] for i in p["idx"] if hu.get(i)) if hu else ""
+    return paragraphs
 
 
 def describe_transcript(t: Any) -> str:

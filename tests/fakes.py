@@ -72,3 +72,51 @@ class FakeGoogle:
     def stop(self) -> None:
         if self._server:
             self._server.should_exit = True
+
+
+SYNONYMS = {"garden": "kert", "gardening": "kert", "kertészet": "kert", "kertész": "kert", "kertről": "kert",
+            "bees": "méh", "méhek": "méh", "train": "vasút", "railway": "vasút", "vonat": "vasút"}
+
+
+def fake_vector(text: str, dim: int = 1024) -> list[float]:
+    """Deterministic stand-in for bge-m3: a normalised bag of word stems, with a few
+    cross-language synonyms, so related texts get a high cosine similarity."""
+    import math
+    import re
+    vec = [0.0] * dim
+    for word in re.findall(r"\w+", text.lower()):
+        word = SYNONYMS.get(word, word)
+        if len(word) < 3:
+            continue
+        vec[int(hashlib.sha256(word[:5].encode()).hexdigest(), 16) % dim] += 1.0
+    norm = math.sqrt(sum(x * x for x in vec)) or 1.0
+    return [x / norm for x in vec]
+
+
+class FakeEmbed:
+    """A stand-in for the embedding service (central.embedder). down = answer 503."""
+
+    def __init__(self) -> None:
+        self.port = free_port()
+        self.url = f"http://127.0.0.1:{self.port}"
+        self.reset()
+        app = FastAPI()
+        fake = self
+
+        @app.post("/embed")
+        async def embed(request: Request):
+            body = await request.json()
+            fake.calls.append(body["texts"])
+            if fake.down:
+                return JSONResponse({"detail": "loading"}, status_code=503)
+            return {"model": "BAAI/bge-m3", "vectors": [fake_vector(t) for t in body["texts"]]}
+
+        self.app = app
+        self._server: uvicorn.Server | None = None
+
+    def reset(self) -> None:
+        self.down = False
+        self.calls: list[list[str]] = []
+
+    start = FakeGoogle.start
+    stop = FakeGoogle.stop

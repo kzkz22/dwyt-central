@@ -16,11 +16,12 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from fakes import FakeGoogle  # noqa: E402
+from fakes import FakeEmbed, FakeGoogle  # noqa: E402
 from pgcluster import Cluster  # noqa: E402
 
 PROTO = {"Dwyt-Protocol": "1"}
-TABLES = ("jobs, item_summaries, item_transcripts, items, summaries, segments, transcripts, sources, "
+TABLES = ("index_queue, chunks, item_translations, translation_segments, translations, "
+          "jobs, item_summaries, item_transcripts, items, summaries, segments, transcripts, sources, "
           "pair_requests, runners, login_states, sessions, invites, users")
 
 
@@ -43,6 +44,12 @@ def database_urls():
             conn.execute(text("CREATE ROLE dwyt_test_app LOGIN PASSWORD 'app'"))
             conn.execute(text("CREATE DATABASE dwyt_test OWNER dwyt_test_owner ENCODING 'UTF8' TEMPLATE template0"))
         engine.dispose()
+        # extensions need a superuser once, as in production (docs/frissites.md)
+        db_engine = create_engine(admin_url.rsplit("/", 1)[0] + "/dwyt_test", isolation_level="AUTOCOMMIT")
+        with db_engine.connect() as conn:
+            for ext in ("vector", "unaccent", "pg_trgm"):
+                conn.execute(text(f"CREATE EXTENSION IF NOT EXISTS {ext}"))
+        db_engine.dispose()
         parts = urlsplit(admin_url)
         hostport = parts.hostname + (f":{parts.port}" if parts.port else "")
         yield (f"postgresql+psycopg://dwyt_test_owner:owner@{hostport}/dwyt_test",
@@ -60,13 +67,21 @@ def fake_google():
 
 
 @pytest.fixture(scope="session")
+def fake_embed():
+    e = FakeEmbed().start()
+    yield e
+    e.stop()
+
+
+@pytest.fixture(scope="session")
 def configured(database_urls, fake_google):
     system_url, app_url = database_urls
     os.environ.update(DATABASE_SYSTEM_URL=system_url, DATABASE_URL=app_url, APP_DB_ROLE="dwyt_test_app",
                       BASE_URL="http://testserver", COOKIE_SECURE="false", GOOGLE_CLIENT_ID="gclient",
                       GOOGLE_CLIENT_SECRET="gsecret", GOOGLE_TOKEN_URL=f"{fake_google.url}/token",
                       GOOGLE_AUTH_URL="https://accounts.example/auth", REGISTRATION="invite",
-                      CLAIM_WAIT_S="0.3", CLAIM_POLL_S="0.05", LEASE_S="900")
+                      CLAIM_WAIT_S="0.3", CLAIM_POLL_S="0.05", LEASE_S="900",
+                      INDEXER="false", EMBED_URL="")
     from alembic import command
     from alembic.config import Config
 
@@ -188,7 +203,7 @@ def pair_runner(client, runner_client, name: str = "otthoni gép") -> str:
     return done.json()["token"]
 
 
-CAPS = {"kinds": ["transcribe", "summarize"], "transcribe_modes": ["captions", "cloud"],
+CAPS = {"kinds": ["transcribe", "summarize", "translate"], "transcribe_modes": ["captions", "cloud"],
         "llm_roles": ["public", "private"], "allowed_domains": ["youtube.com", "youtu.be"]}
 
 
@@ -202,10 +217,11 @@ def claim(runner_client, token: str, caps: dict | None = None):
                               headers=runner_headers(token))
 
 
-def transcript_result(texts=("Jó napot kívánok.", "Ma a kertről beszélünk."), mode="captions") -> dict:
-    return {"video": {"title": "Kerti videó", "channel": "Kertész", "duration_s": 120},
+def transcript_result(texts=("Jó napot kívánok.", "Ma a kertről beszélünk."), mode="captions", language="hu",
+                      title="Kerti videó", channel="Kertész") -> dict:
+    return {"video": {"title": title, "channel": channel, "duration_s": 120},
             "transcript": {"mode": mode, "model": "youtube-auto" if mode == "captions" else "universal-2",
-                           "caption_kind": "auto" if mode == "captions" else None, "language": "hu",
+                           "caption_kind": "auto" if mode == "captions" else None, "language": language,
                            "diarized": mode != "captions",
                            "speakers": [] if mode == "captions" else [{"label": "Szereplő 1", "share": 1.0}],
                            "warnings": [], "segments": [

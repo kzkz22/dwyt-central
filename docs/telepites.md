@@ -19,14 +19,14 @@ A nagybetűs részeket (`DWYT-IP`, `APACHE-IP`, `VPN-SUBNET`) cseréld a saját 
 ```bash
 # Proxmox gépen; a sablon neve a saját tárolódon eltérhet (pveam list local), a 150-es azonosító szabadon választható
 pct create 150 local:vztmpl/debian-12-standard_12.12-1_amd64.tar.zst \
-  --hostname dwyt --cores 2 --memory 4096 --swap 1024 \
+  --hostname dwyt --cores 2 --memory 6500 --swap 1024 \
   --rootfs local-lvm:20 --unprivileged 1 --features nesting=1 \
   --net0 name=eth0,bridge=vmbr0,ip=DWYT-IP/24,gw=ÁTJÁRÓ-IP \
   --onboot 1
 pct start 150
 ```
 
-A 4 GB memória a 3. körben érkező keresés miatt kell (a `bge-m3` modell kb. 2,2 GB); az 1. körnek 1 GB is elég.
+A 6,5 GB memória a keresés miatt kell: a `bge-m3` beágyazó modell kb. 2,2 GB-ot használ, mellette fut a PostgreSQL és a webes szolgáltatás.
 
 ## 2. Alapcsomagok és PostgreSQL 17
 
@@ -75,6 +75,12 @@ runuser -u postgres -- psql -l | grep dwyt                 # a kódolás UTF8
 
 Fontos: a `dwyt_app` ne legyen superuser és ne kapjon `BYPASSRLS` jogot (a `dwyt-central-cli check` ezt is ellenőrzi).
 
+A kereséshez három PostgreSQL-bővítmény kell. Létrehozásukhoz egyszer superuser kell, ezért nem a program csinálja:
+
+```bash
+runuser -u postgres -- psql -d dwyt -c "CREATE EXTENSION IF NOT EXISTS vector; CREATE EXTENSION IF NOT EXISTS unaccent; CREATE EXTENSION IF NOT EXISTS pg_trgm;"
+```
+
 ## 4. A program
 
 ```bash
@@ -117,6 +123,23 @@ A `create-admin` először visszaírja az e-mail-címet, és megerősítést ké
 A `check` elvárt kimenete: „sorvédelem: bekapcsolva”, „alkalmazás-szerepkör (dwyt_app): rendben”.
 
 Próba a belső hálózatról, az Apache nélkül: `http://DWYT-IP:8000/admin-belepes` (jelszó + kód). Ehhez a `.env`-ben átmenetileg `COOKIE_SECURE=false` kell, mert HTTP-n a böngésző nem küldi vissza a `Secure` sütit.
+
+### A beágyazó szolgáltatás (a jelentés szerinti kereséshez)
+
+A `bge-m3` modell a CPU-n fut, külön szolgáltatásként (`dwyt-central-embed`, csak a `127.0.0.1:8001` címen). Nélküle is működik a szöveges keresés; a `central.env`-ben ekkor `EMBED_URL=` (üres).
+
+```bash
+# LXC-ben
+/opt/dwyt-central/venv/bin/pip install --index-url https://download.pytorch.org/whl/cpu torch
+/opt/dwyt-central/venv/bin/pip install "/opt/dwyt-central/app[embed]"
+cp /opt/dwyt-central/app/deploy/dwyt-central/dwyt-central-embed.service /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now dwyt-central-embed
+journalctl -u dwyt-central-embed -f     # az első indításkor letölti a modellt (kb. 2,2 GB), utána „loaded”
+dwyt-central-cli check                  # „beágyazó szolgáltatás: rendben”
+```
+
+A torch CPU-s változata kell (a `--index-url` miatt); a sima `pip install torch` a több GB-os CUDA-s változatot hozná.
 
 ## 7. Google-belépés
 

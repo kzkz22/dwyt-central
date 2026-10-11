@@ -10,7 +10,9 @@ from __future__ import annotations
 import logging
 import secrets
 import time
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -23,18 +25,29 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from starlette.concurrency import run_in_threadpool
 
-from . import accounts, db, jobs, library, protocol, ratelimit, security, sources
+from . import accounts, db, indexing, jobs, library, protocol, ratelimit, reuse, search, security, sources
 from .config import Settings, get_settings
 from .db import utcnow
-from .models import (ACTIVE, Invite, Item, ItemTranscript, Job, Runner, Session, Source, Summary,
-                     Transcript, User)
+from .models import (ACTIVE, Invite, Item, ItemSummary, ItemTranscript, ItemTranslation, Job, Runner, Session,
+                     Source, Summary, Transcript, Translation, User)
 
 log = logging.getLogger("dwyt")
 HERE = Path(__file__).resolve().parent
 PAGE_SIZE = 30
 ONLINE_S = 90
 
-app = FastAPI(title="dwyt", docs_url=None, redoc_url=None, openapi_url=None)
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    indexer = None
+    if get_settings().indexer:
+        indexer = indexing.Indexer()
+        indexer.start()
+    yield
+    if indexer is not None:
+        indexer.stop.set()
+
+
+app = FastAPI(title="dwyt", docs_url=None, redoc_url=None, openapi_url=None, lifespan=_lifespan)
 app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 app.include_router(protocol.router)
 templates = Jinja2Templates(directory=HERE / "templates")
@@ -46,7 +59,8 @@ def _local(value, fmt: str = "%Y-%m-%d %H:%M") -> str:
 
 templates.env.filters.update(local=_local)
 templates.env.globals.update(hms=library.hms, stage_label=jobs.stage_label, state_labels=jobs.STATE_LABELS,
-                             describe_transcript=library.describe_transcript, mode_labels=library.MODE_LABELS)
+                             describe_transcript=library.describe_transcript, mode_labels=library.MODE_LABELS,
+                             kind_labels=jobs.KIND_LABELS)
 
 CSP = ("default-src 'self'; img-src 'self' https://i.ytimg.com; style-src 'self'; script-src 'self'; "
        "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self' https://accounts.google.com")
@@ -415,7 +429,8 @@ def library_page(request: Request, oldal: int = 1, viewer: Viewer = Depends(curr
 
 
 @app.get("/elem/{item_id}", response_class=HTMLResponse)
-def item_page(request: Request, item_id: int, atirat: int | None = None, viewer: Viewer = Depends(current_viewer)):
+def item_page(request: Request, item_id: int, atirat: int | None = None, nezet: str = "",
+              viewer: Viewer = Depends(current_viewer)):
     with db.user_session(viewer.id) as s:
         item = s.get(Item, item_id)
         if item is None:
@@ -427,10 +442,31 @@ def item_page(request: Request, item_id: int, atirat: int | None = None, viewer:
             chosen = transcripts[-1]
         summary = s.get(Summary, item.current_summary_id) if item.current_summary_id else None
         item_jobs = s.scalars(select(Job).where(Job.item_id == item.id).order_by(Job.id.desc()).limit(10)).all()
-        paragraphs = library.turns(chosen.segments) if chosen else []
+        translation = None
+        if chosen is not None:
+            translation = s.scalar(select(Translation).join(ItemTranslation,
+                                                            ItemTranslation.translation_id == Translation.id)
+                                   .where(ItemTranslation.item_id == item.id, Translation.transcript_id == chosen.id)
+                                   .order_by(Translation.id.desc()))
+        hu = {g.idx: g.text for g in translation.segments} if translation else None
+        paragraphs = library.with_translation(library.turns(chosen.segments), hu) if chosen else []
         links = {p["start"]: library.timestamp_url(item.source, p["start"]) for p in paragraphs}
+        reused = {
+            "transcript": {t for t, r in s.execute(select(ItemTranscript.transcript_id, ItemTranscript.reused)
+                                                   .where(ItemTranscript.item_id == item.id)) if r},
+            "summary": bool(summary and s.scalar(select(ItemSummary.reused).where(
+                ItemSummary.item_id == item.id, ItemSummary.summary_id == summary.id))),
+            "translation": bool(translation and s.scalar(select(ItemTranslation.reused).where(
+                ItemTranslation.item_id == item.id, ItemTranslation.translation_id == translation.id))),
+        }
+        translating = any(j.kind == "translate" and j.state in ACTIVE for j in item_jobs)
+    view = nezet if nezet in ("eredeti", "magyar", "mindketto") else ("mindketto" if translation else "eredeti")
+    if not translation:
+        view = "eredeti"
     return _render(request, "item.html", viewer, item=item, transcripts=transcripts, transcript=chosen,
-                   paragraphs=paragraphs, links=links, summary=summary, item_jobs=item_jobs)
+                   paragraphs=paragraphs, links=links, summary=summary, item_jobs=item_jobs, translation=translation,
+                   view=view, reused=reused, translating=translating,
+                   can_translate=bool(chosen and jobs.needs_translation(chosen.language)))
 
 
 @app.post("/elem/{item_id}/torles")
@@ -461,6 +497,100 @@ async def resummarize(request: Request, item_id: int, viewer: Viewer = Depends(a
     if error:
         return _message(request, viewer, "Az összefoglaló nem indult el", error, f"/elem/{item_id}", 422)
     return _redirect(f"/elem/{item_id}")
+
+
+@app.post("/elem/{item_id}/sajat")
+async def rerun_own(request: Request, item_id: int, viewer: Viewer = Depends(authed_post)):
+    """Make the main transcript again with the user's own runner (e.g. instead of a reused one)."""
+    def enqueue() -> str | None:
+        with db.user_session(viewer.id) as s:
+            item = s.get(Item, item_id)
+            if item is None or item.main_transcript_id is None:
+                return "Ehhez az elemhez még nincs átirat."
+            busy = s.scalar(select(Job.id).where(Job.item_id == item.id, Job.kind == "transcribe",
+                                                 Job.state.in_(ACTIVE)))
+            if busy:
+                return "Az átírás már folyamatban van."
+            t = s.get(Transcript, item.main_transcript_id)
+            job = jobs.enqueue_transcription(s, viewer.id, item, item.source, dict(t.options or {}),
+                                             summarize=item.current_summary_id is not None)
+            job.payload = {**job.payload, "make_main": True}
+            return None
+    error = await run_in_threadpool(enqueue)
+    if error:
+        return _message(request, viewer, "Az átírás nem indult el", error, f"/elem/{item_id}", 422)
+    return _redirect(f"/elem/{item_id}")
+
+
+@app.post("/elem/{item_id}/forditas")
+async def request_translation(request: Request, item_id: int, viewer: Viewer = Depends(authed_post)):
+    def enqueue() -> str | None:
+        with db.user_session(viewer.id) as s:
+            item = s.get(Item, item_id)
+            if item is None or item.main_transcript_id is None:
+                return "Ehhez az elemhez még nincs átirat."
+            t = s.get(Transcript, item.main_transcript_id)
+            if not jobs.needs_translation(t.language):
+                return "Az átirat magyar, nincs mit fordítani."
+            busy = s.scalar(select(Job.id).where(Job.item_id == item.id, Job.kind == "translate",
+                                                 Job.state.in_(ACTIVE)))
+            if busy:
+                return "A fordítás már készül."
+            jobs.enqueue_translation(s, viewer.id, item, item.main_transcript_id, _title(item))
+            return None
+    error = await run_in_threadpool(enqueue)
+    if error:
+        return _message(request, viewer, "A fordítás nem indult el", error, f"/elem/{item_id}", 422)
+    return _redirect(f"/elem/{item_id}")
+
+
+# ---- settings -----------------------------------------------------------------------------
+
+@app.get("/beallitasok", response_class=HTMLResponse)
+def settings_page(request: Request, viewer: Viewer = Depends(current_viewer)):
+    with db.system_session() as s:
+        user = s.get(User, viewer.id)
+        translate_auto = user.translate_auto
+    return _render(request, "settings.html", viewer, translate_auto=translate_auto, saved=False)
+
+
+@app.post("/beallitasok")
+async def save_settings(request: Request, viewer: Viewer = Depends(authed_post)):
+    form = await request.form()
+    value = form.get("translate_auto") == "on"
+
+    def save() -> None:
+        with db.system_session() as s:  # the users table is the system's; only the viewer's own row
+            s.get(User, viewer.id).translate_auto = value
+    await run_in_threadpool(save)
+    return _render(request, "settings.html", viewer, translate_auto=value, saved=True)
+
+
+# ---- search -------------------------------------------------------------------------------
+
+def _date(value: str) -> date | None:
+    try:
+        return date.fromisoformat(value) if value else None
+    except ValueError:
+        return None
+
+
+@app.get("/kereses", response_class=HTMLResponse)
+def search_page(request: Request, q: str = "", pontos: str = "", csatorna: str = "", nyelv: str = "", mod: str = "",
+                tol: str = "", ig: str = "", viewer: Viewer = Depends(current_viewer)):
+    filters = search.Filters(channel=csatorna[:300], language=nyelv[:10], mode=mod if mod in MODES else "",
+                             date_from=_date(tol), date_to=_date(ig))
+    outcome = search.run(viewer.id, q, get_settings(), exact=pontos == "on", filters=filters) if q.strip() else None
+    links = {}
+    if outcome:
+        for r in outcome.results:
+            for h in r.hits:
+                if h.start_s is not None and r.item["kind"] == "youtube":
+                    video = r.item["key"].split(":", 1)[1]
+                    links[(r.item["id"], h.chunk_id)] = f"https://www.youtube.com/watch?v={video}&t={int(h.start_s)}s"
+    return _render(request, "search.html", viewer, q=q, exact=pontos == "on", outcome=outcome, filters=filters,
+                   channels=search.channels(viewer.id), modes=library.MODE_LABELS, links=links,
+                   snippet=search.snippet, best_text=search.best_text, index_status=indexing.status(viewer.id))
 
 
 # ---- submit -------------------------------------------------------------------------------
@@ -529,16 +659,25 @@ async def submit(request: Request, viewer: Viewer = Depends(authed_post)):
         return _render(request, "submit.html", viewer, form=form, errors=errors, modes=MODES,
                        cloud_models=CLOUD_MODELS, local_models=LOCAL_MODELS, status_code=422)
     source_id = await run_in_threadpool(_source_for, ref)
+    summarize = form.get("summarize") == "on"
 
     def enqueue() -> int:
+        with db.system_session() as s:
+            source = s.get(Source, source_id)
+            s.expunge(source)
+        found = reuse.find(source, options)
+        auto_translate = reuse.translate_auto(viewer.id)
         with db.user_session(viewer.id) as s:
             item = s.scalar(select(Item).where(Item.source_id == source_id))
             if item is None:
                 item = Item(user_id=viewer.id, source_id=source_id, is_public=True)
                 s.add(item)
                 s.flush()
-            source = s.get(Source, source_id)
-            jobs.enqueue_transcription(s, viewer.id, item, source, options, form.get("summarize") == "on")
+                indexing.enqueue(s, item)  # title and channel are searchable at once
+            if found is not None:
+                reuse.attach(s, viewer.id, item, found, summarize, auto_translate)
+            else:
+                jobs.enqueue_transcription(s, viewer.id, item, s.get(Source, source_id), options, summarize)
             return item.id
 
     item_id = await run_in_threadpool(enqueue)
