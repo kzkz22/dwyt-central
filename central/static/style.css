@@ -151,3 +151,4 @@ code { background: var(--bg); border: 1px solid var(--line); border-radius: 4px;
 mark { background: var(--warn-bg); color: inherit; padding: 0 1px; }
 .badge.meaning { border-style: dashed; }
 .notice { background: var(--warn-bg); border-radius: 8px; padding: 8px 12px; }
+.results .result { padding: 12px 16px; }

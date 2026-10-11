@@ -264,6 +264,8 @@ def best_text(hit: Hit, q: str) -> tuple[str, str]:
     """(text to show, 'eredeti'|'magyar'): the side where the query words occur; Hungarian when
     the hit came by meaning only and a translation exists."""
     terms = _terms(q)
+    if hit.kind == "summary":  # Markdown headings and bullets are noise in a snippet
+        return re.sub(r"(?m)^\s*(#+|-)\s+", "", hit.text), "eredeti"
     if hit.text_hu:
         in_orig = any(t in fold(hit.text) for t in terms)
         in_hu = any(t in fold(hit.text_hu) for t in terms)
