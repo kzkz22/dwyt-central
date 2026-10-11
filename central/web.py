@@ -7,6 +7,7 @@ or the X-CSRF-Token header).
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import secrets
 import time
@@ -57,7 +58,24 @@ def _local(value, fmt: str = "%Y-%m-%d %H:%M") -> str:
     return value.astimezone(ZoneInfo(get_settings().timezone)).strftime(fmt) if value else ""
 
 
+def _asset_versions() -> dict[str, str]:
+    """Content hash per static file, so a changed file gets a new URL and no stale copy is used."""
+    out = {}
+    for path in (HERE / "static").rglob("*"):
+        if path.is_file():
+            out[path.relative_to(HERE / "static").as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()[:12]
+    return out
+
+
+ASSET_VERSIONS = _asset_versions()
+
+
+def asset(name: str) -> str:
+    return f"/static/{name}?v={ASSET_VERSIONS.get(name, '0')}"
+
+
 templates.env.filters.update(local=_local)
+templates.env.globals.update(asset=asset)
 templates.env.globals.update(hms=library.hms, stage_label=jobs.stage_label, state_labels=jobs.STATE_LABELS,
                              describe_transcript=library.describe_transcript, mode_labels=library.MODE_LABELS,
                              kind_labels=jobs.KIND_LABELS)
@@ -73,7 +91,12 @@ async def security_headers(request: Request, call_next):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("Referrer-Policy", "same-origin")
     response.headers.setdefault("X-Frame-Options", "DENY")
-    if not request.url.path.startswith("/static/"):
+    if request.url.path.startswith("/static/"):
+        # versioned URLs (asset()) may be kept; unversioned ones are checked again every time
+        versioned = "v" in request.query_params
+        response.headers.setdefault("Cache-Control", "public, max-age=31536000, immutable" if versioned
+                                    else "no-cache")
+    else:
         response.headers.setdefault("Cache-Control", "no-store")
     return response
 

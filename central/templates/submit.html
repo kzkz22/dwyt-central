@@ -17,6 +17,7 @@
     <label>Hang- vagy videófájl (legfeljebb {{ upload_max_mb }} MB) <input type="file" id="upload-file" accept="audio/*,video/*"></label>
     <input type="hidden" name="staging_id" id="staging-id" value="{{ form.staging_id or '' }}">
     <progress id="upload-progress" max="100" value="0" hidden></progress>
+    <noscript><p class="error">A feltöltéshez engedélyezd a JavaScriptet ezen az oldalon.</p></noscript>
     <p id="upload-status" class="muted" aria-live="polite">{% if form.staging_id %}A fájl feltöltve.{% endif %}</p>
     <p class="muted">Saját felvétel: más nem kaphatja meg az eredményét, az összefoglaló és a fordítás csak a futtatód saját (helyi) modelljével készül. Ha a fájl nem hagyhatja el a gépedet, használd a futtató figyelt mappáját.</p>
   </div>

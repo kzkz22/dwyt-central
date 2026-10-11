@@ -160,3 +160,15 @@ def test_expired_uploads_are_cleaned_up(alice):
     assert not (staging() / sha).exists()
     r = submit_upload(alice, staging_id)
     assert r.status_code == 422 and "már nem használható" in r.text
+
+
+def test_static_files_have_versioned_urls(alice):
+    import re
+    page = alice.get("/uj")
+    assert 'id="upload-file"' in page.text
+    url = re.search(r'src="(/static/app\.js\?v=[0-9a-f]{12})"', page.text).group(1)
+    js = alice.get(url)
+    assert js.status_code == 200 and "uploadFile" in js.text
+    assert "immutable" in js.headers["cache-control"]  # a changed file gets a new URL instead
+    assert alice.get("/static/app.js").headers["cache-control"] == "no-cache"
+    assert page.headers["cache-control"] == "no-store"
