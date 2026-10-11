@@ -23,12 +23,15 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.routing import Route
 from sqlalchemy import func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from starlette.concurrency import run_in_threadpool
 
-from . import (accounts, db, indexing, items, jobs, library, ownfiles, protocol, ratelimit, render, reuse, search,
-               notify, secretbox, security, sources, subscriptions, youtube)
+from . import (accounts, db, indexing, items, jobs, library, mcp_server, notify, ownfiles, protocol, ratelimit,
+               render, search, secretbox, security, sources, subscriptions, youtube)
+from . import submit as submit_mod
+from .submit import CLOUD_MODELS, LOCAL_MODELS, MODES, parse_options
 from .config import Settings, get_settings
 from .db import utcnow
 from .models import (ACTIVE, Channel, InboxEntry, Invite, Item, ItemSummary, ItemTranscript, ItemTranslation, Job,
@@ -48,7 +51,8 @@ async def _lifespan(_app: FastAPI):
         threads.append(subscriptions.Background())
     for thread in threads:
         thread.start()
-    yield
+    async with mcp_server.lifespan():
+        yield
     for thread in threads:
         thread.stop.set()
 
@@ -56,6 +60,8 @@ async def _lifespan(_app: FastAPI):
 app = FastAPI(title="dwyt", docs_url=None, redoc_url=None, openapi_url=None, lifespan=_lifespan)
 app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 app.include_router(protocol.router)
+# MCP clients (Hermes, OpenCode, Claude…): per-user tokens from the Settings page, see central/mcp_server.py
+app.router.routes.append(Route("/mcp", endpoint=mcp_server.endpoint, methods=["GET", "POST", "DELETE"]))
 templates = Jinja2Templates(directory=HERE / "templates")
 
 
@@ -571,7 +577,7 @@ def item_page(request: Request, item_id: int, atirat: int | None = None, nezet: 
         }
         status = _status_context(s, item)
         runners = _runners(s)
-        can_rerun = item.source.kind != "upload" or _own_file_of(s, item) is not None
+        can_rerun = item.source.kind != "upload" or submit_mod.own_file_of(s, item) is not None
     summary_html = None
     if summary is not None:
         starts = sorted(p["start"] for p in main_paragraphs)
@@ -733,17 +739,6 @@ async def delete_transcript(item_id: int, transcript_id: int, viewer: Viewer = D
     return _redirect(f"/elem/{item_id}")
 
 
-def _own_file_of(s, item: Item) -> dict[str, Any] | None:
-    """The watched-folder file of an own recording (the runner that registered it still has it);
-    browser uploads are gone from here once transcribed."""
-    for job in s.scalars(select(Job).where(Job.item_id == item.id, Job.kind == "transcribe")
-                         .order_by(Job.id.desc())):
-        src = (job.payload or {}).get("source") or {}
-        if src.get("kind") == "local":
-            return dict(src)
-    return None
-
-
 @app.post("/elem/{item_id}/sajat")
 async def rerun_own(request: Request, item_id: int, viewer: Viewer = Depends(authed_post)):
     """Make the main transcript again with the user's own runner (e.g. instead of a reused one)."""
@@ -778,54 +773,10 @@ async def retranscribe(request: Request, item_id: int, viewer: Viewer = Depends(
     summarize = form.get("summarize") == "on"
 
     def enqueue() -> str | None:
-        with db.system_session() as s:
-            item_source = s.scalar(select(Source).join(Item, Item.source_id == Source.id)
-                                   .where(Item.id == item_id, Item.user_id == viewer.id))
-            if item_source is not None:
-                s.expunge(item_source)
-        if item_source is None:
-            return "Nincs ilyen elem."
         if errors:
             return " ".join(errors)
-        if options.get("mode") == "captions" and item_source.kind != "youtube":
-            return "YouTube-feliratot csak YouTube-videóhoz lehet kérni."
-        try:
-            ownfiles.check_storage(get_settings(), viewer.id)
-        except ownfiles.QuotaError as exc:
-            return str(exc)
-        found = reuse.find(item_source, options)
-        with db.user_session(viewer.id) as s:
-            item = s.get(Item, item_id)
-            busy = s.scalar(select(Job.id).where(Job.item_id == item.id, Job.kind == "transcribe",
-                                                 Job.state.in_(ACTIVE)))
-            if busy:
-                return "Az elemhez már fut egy átírás; várd meg, vagy szakítsd meg a Munkák oldalon."
-            if found is not None:
-                if s.get(ItemTranscript, (item.id, found.transcript_id)) is not None:
-                    return "Ilyen beállításokkal már van átirata az elemnek."
-                s.add(ItemTranscript(item_id=item.id, transcript_id=found.transcript_id, user_id=viewer.id,
-                                     reused=True))
-                for model, key, ident in ((ItemSummary, "summary_id", found.summary_id),
-                                          (ItemTranslation, "translation_id", found.translation_id)):
-                    if ident and s.get(model, (item.id, ident)) is None:
-                        s.add(model(item_id=item.id, user_id=viewer.id, reused=True, **{key: ident}))
-                s.flush()
-                if make_main or item.main_transcript_id is None:
-                    items.set_main(s, viewer.id, item, found.transcript_id, want_summary=summarize)
-                return None
-            file = None
-            if item_source.kind == "upload":
-                file = _own_file_of(s, item)
-                if file is None:
-                    return ("A feltöltött fájl már nincs a központon. Töltsd fel újra az Új átirat oldalon: "
-                            "az új átirat ehhez az elemhez kerül.")
-                if options.get("mode") == "captions":
-                    return "Saját felvételhez YouTube-felirat nem kérhető."
-            job = jobs.enqueue_transcription(s, viewer.id, item, s.get(Source, item_source.id), options, summarize,
-                                             file=file)
-            if make_main:
-                job.payload = {**job.payload, "make_main": True}
-            return None
+        return submit_mod.retranscribe(viewer.id, item_id, options, make_main, summarize)
+
     error = await run_in_threadpool(enqueue)
     if error:
         return _message(request, viewer, "Az újraírás nem indult el", error, f"/elem/{item_id}", 422)
@@ -1033,12 +984,13 @@ def _usage(viewer: Viewer) -> dict[str, Any]:
 
 
 def _settings_page(request: Request, viewer: Viewer, saved: bool = False, message: str | None = None,
-                   error: bool = False, status: int = 200):
+                   error: bool = False, status: int = 200, new_token: str | None = None):
     with db.system_session() as s:
         translate_auto = s.get(User, viewer.id).translate_auto
     return _render(request, "settings.html", viewer, status_code=status, translate_auto=translate_auto, saved=saved,
                    usage=_usage(viewer), message=message, message_error=error, note_cfg=notify.get(viewer.id),
-                   channels=notify.CHANNELS, last_note=notify.last(viewer.id),
+                   channels=notify.CHANNELS, last_note=notify.last(viewer.id), mcp_tokens=mcp_server.tokens(viewer.id),
+                   new_token=new_token, mcp_url=f"{get_settings().base_url}/mcp",
                    suggested_topic="dwyt-" + secrets.token_urlsafe(12).replace("_", "x").replace("-", "y"))
 
 
@@ -1067,6 +1019,23 @@ async def save_notifications(request: Request, viewer: Viewer = Depends(authed_p
     except (notify.NotifyError, secretbox.NoKey) as exc:
         return await run_in_threadpool(_settings_page, request, viewer, False, str(exc), True, 422)
     return await run_in_threadpool(_settings_page, request, viewer, True)
+
+
+@app.post("/beallitasok/mcp")
+async def create_mcp_token(request: Request, viewer: Viewer = Depends(authed_post)):
+    form = await request.form()
+    if len(mcp_server.tokens(viewer.id)) >= 20:
+        return await run_in_threadpool(_settings_page, request, viewer, False, "Legfeljebb 20 MCP-token lehet; "
+                                       "vonj vissza egy régit.", True, 422)
+    token = await run_in_threadpool(mcp_server.create_token, viewer.id, str(form.get("name") or ""),
+                                    form.get("can_start") == "on", form.get("include_private") == "on")
+    return await run_in_threadpool(_settings_page, request, viewer, False, None, False, 200, token)
+
+
+@app.post("/beallitasok/mcp/{token_id}/visszavonas")
+async def revoke_mcp_token(token_id: int, viewer: Viewer = Depends(authed_post)):
+    await run_in_threadpool(mcp_server.revoke_token, viewer.id, token_id)
+    return _redirect("/beallitasok#mcp")
 
 
 @app.post("/beallitasok/ertesites/proba")
@@ -1105,42 +1074,6 @@ def search_page(request: Request, q: str = "", pontos: str = "", csatorna: str =
 
 # ---- submit -------------------------------------------------------------------------------
 
-MODES = {"captions": "YouTube-felirat (gyors, ingyenes, beszélők nélkül)",
-         "local": "Helyi Whisper (a saját GPU-don, beszélőkkel; megvárja a GPU-gépet)",
-         "cloud": "Felhős átírás (a futtatód AssemblyAI-kulcsával, beszélőkkel)"}
-CLOUD_MODELS = ("auto", "universal-2", "universal-3-5-pro")
-LOCAL_MODELS = ("large-v3", "large-v3-turbo")
-
-
-def parse_options(form: dict[str, str]) -> tuple[dict[str, Any], list[str]]:
-    errors: list[str] = []
-    mode = form.get("mode") or "captions"
-    if mode not in MODES:
-        errors.append("Ismeretlen mód.")
-    language = (form.get("language") or "").strip().lower() or None
-    if language and not (2 <= len(language) <= 3 and language.isalpha()):
-        errors.append("A nyelv kétbetűs kód legyen (például hu, en), vagy üres az automatikus felismeréshez.")
-    options: dict[str, Any] = {"mode": mode, "language": language, "diarize": mode != "captions"}
-    if mode == "cloud":
-        model = form.get("model_cloud") or "auto"
-        if model not in CLOUD_MODELS:
-            errors.append("Ismeretlen felhős modell.")
-        options["model"] = model
-    if mode == "local":
-        model = form.get("model_local") or LOCAL_MODELS[0]
-        if model not in LOCAL_MODELS:
-            errors.append("Ismeretlen Whisper-modell.")
-        options["model"] = model
-    if mode in ("cloud", "local"):
-        speakers = (form.get("num_speakers") or "").strip()
-        if speakers:
-            if not speakers.isdigit() or not 1 <= int(speakers) <= 20:
-                errors.append("A beszélők száma 1 és 20 között legyen.")
-            else:
-                options["num_speakers"] = int(speakers)
-    return options, errors
-
-
 def _submit_ctx(viewer: Viewer) -> dict[str, Any]:
     lim = ownfiles.user_limits(get_settings(), viewer.id)
     return {"modes": MODES, "cloud_models": CLOUD_MODELS, "local_models": LOCAL_MODELS,
@@ -1165,13 +1098,6 @@ async def stage_upload(request: Request, name: str = "feltoltes", viewer: Viewer
     return {"staging_id": up.id, "name": up.name, "size": up.size}
 
 
-def _source_for(ref: sources.SourceRef) -> int:
-    with db.system_session() as s:
-        s.execute(insert(Source).values(kind=ref.kind, key=ref.key, url=ref.url, meta={})
-                  .on_conflict_do_nothing(index_elements=[Source.key]))
-        return s.scalar(select(Source.id).where(Source.key == ref.key))
-
-
 @app.post("/uj")
 async def submit(request: Request, viewer: Viewer = Depends(authed_post)):
     form = {k: str(v) for k, v in (await request.form()).items()}
@@ -1193,29 +1119,8 @@ async def submit(request: Request, viewer: Viewer = Depends(authed_post)):
     if errors:
         return _render(request, "submit.html", viewer, form=form, errors=errors, status_code=422,
                        **_submit_ctx(viewer))
-    source_id = await run_in_threadpool(_source_for, ref)
-    summarize = form.get("summarize") == "on"
-
-    def enqueue() -> int:
-        with db.system_session() as s:
-            source = s.get(Source, source_id)
-            s.expunge(source)
-        found = reuse.find(source, options)
-        auto_translate = reuse.translate_auto(viewer.id)
-        with db.user_session(viewer.id) as s:
-            item = s.scalar(select(Item).where(Item.source_id == source_id))
-            if item is None:
-                item = Item(user_id=viewer.id, source_id=source_id, is_public=True)
-                s.add(item)
-                s.flush()
-                indexing.enqueue(s, item)  # title and channel are searchable at once
-            if found is not None:
-                reuse.attach(s, viewer.id, item, found, summarize, auto_translate)
-            else:
-                jobs.enqueue_transcription(s, viewer.id, item, s.get(Source, source_id), options, summarize)
-            return item.id
-
-    item_id = await run_in_threadpool(enqueue)
+    item_id = await run_in_threadpool(submit_mod.submit_url, viewer.id, ref, options,
+                                      form.get("summarize") == "on")
     return _redirect(f"/elem/{item_id}")
 
 

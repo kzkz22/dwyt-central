@@ -55,6 +55,34 @@
   {% if last_note %}<p class="muted">Utolsó: {{ last_note.title }} · {{ last_note.created_at|local }} · {% if last_note.sent_at %}{{ last_note.error or 'elküldve' }}{% elif last_note.digest %}az összesítőben megy{% else %}<span class="error-text">{{ last_note.error or 'küldésre vár' }}</span>{% endif %}</p>{% endif %}
 </section>
 
+<section class="card" id="mcp">
+  <h2>MCP-hozzáférés</h2>
+  <p class="muted">MCP-kliensek (Hermes, OpenCode, Claude és mások) a könyvtáradban kereshetnek, átiratot és összefoglalót olvashatnak; ha engeded, átírást is indíthatnak. Cím: <code>{{ mcp_url }}</code>, fejléc: <code>Authorization: Bearer TOKEN</code>. A kliensek beállítása: <a href="https://github.com/kzkz22/dwyt-central/blob/main/docs/mcp.md" rel="noopener noreferrer" target="_blank">docs/mcp.md</a>.</p>
+  {% if new_token %}
+  <div class="warn-box" role="status"><p><strong>Az új token</strong> (csak most látszik, másold ki):</p><p><code class="token">{{ new_token }}</code></p></div>
+  {% endif %}
+  {% if mcp_tokens %}
+  <ul class="items">
+    {% for t in mcp_tokens %}
+    <li class="item channel">
+      <div><span class="title">{{ t.name }}</span>
+        <div class="meta">{{ 'olvas és indít' if t.can_start else 'csak olvas' }} · {{ 'saját felvételekkel' if t.include_private else 'saját felvételek nélkül' }} · létrehozva {{ t.created_at|local }}{% if t.last_used_at %} · utoljára {{ t.last_used_at|local }}{% endif %}</div></div>
+      <form method="post" action="/beallitasok/mcp/{{ t.id }}/visszavonas" class="inline confirm" data-confirm="Visszavonod a(z) „{{ t.name }}” tokent? Az ezt használó kliens azonnal kizáródik.">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="danger small">Visszavonás</button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  <form method="post" action="/beallitasok/mcp" class="stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <label>Név (például Hermes, laptop) <input name="name" maxlength="100" required></label>
+    <label class="choice"><input type="checkbox" name="can_start"> Átírást is indíthat (a felhős mód csak kifejezett kérésre)</label>
+    <label class="choice"><input type="checkbox" name="include_private"> A saját felvételeimet is láthatja (csak akkor, ha a kliens modellje helyi)</label>
+    <p><button class="secondary">Új token</button></p>
+  </form>
+</section>
+
 <section class="card">
   <h2>Keretek</h2>
   <p>Tárhely (szöveg és keresési vektorok): <strong>{{ usage.used_mb|round(1) }} MB</strong> / {{ usage.quota_mb|round(0)|int }} MB</p>

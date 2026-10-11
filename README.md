@@ -4,7 +4,7 @@ A **dwyt** központja: webes felület, belépés (Google + meghívás), felhaszn
 
 - Terv és döntések: [dwyt-docs/docs/terv.md](https://github.com/kzkz22/dwyt-docs/blob/main/docs/terv.md)
 - Központ–futtató protokoll: [dwyt-docs/docs/protokoll.md](https://github.com/kzkz22/dwyt-docs/blob/main/docs/protokoll.md)
-- [Telepítés](docs/telepites.md) · [Frissítés](docs/frissites.md)
+- [Telepítés](docs/telepites.md) · [Frissítés](docs/frissites.md) · [MCP-kliensek](docs/mcp.md)
 
 ## Állapot
 
@@ -19,9 +19,10 @@ Az 1–3. kör kész (a 3c résszel együtt):
 - elemoldal: összefoglaló-változatok (választható aktuális, Markdown-letöltés), több átirat (fő átirat választása, törlés, újraírás más beállítással), letöltés TXT-ben és SRT-ben eredetiben és magyarul, választható modell, a hosszú munkák haladása;
 - könyvtár szűréssel és összefoglaló-előnézettel; a hiányzó összefoglalók, fordítások és az index pótlása egy gombbal;
 - YouTube-feliratkozások (a YouTube-fiókból, Takeout-fájlból vagy kézzel), csatornánkénti szabály, postaláda; a feliratkozásos videók láncolata: felirat → helyi Whisper → felhő, ha engedélyezett (4a).;
-- értesítés ntfy-jal vagy Home Assistanttel: kész munka, hiba, a feliratkozásokról napi összesítő vagy csatornánként azonnal (4b).
+- értesítés ntfy-jal vagy Home Assistanttel: kész munka, hiba, a feliratkozásokról napi összesítő vagy csatornánként azonnal (4b);
+- MCP a `/mcp` címen, felhasználónkénti, visszavonható tokenekkel (4c): [docs/mcp.md](docs/mcp.md).
 
-Következik: MCP.
+Következik az 5. kör: passkey, címkék, jegyzet, beszélőnevek, export, a régi könyvtár behozatala, fióktörlés.
 
 ## Fejlesztés
 

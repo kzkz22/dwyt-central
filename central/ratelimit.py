@@ -16,6 +16,8 @@ LIMITS = {
     "google-start": (30, 300),    # each start stores a sign-in state
     "invite": (30, 300),          # invitation link checks
     "pair-start": (10, 600),      # each start stores a pending pairing
+    "mcp": (300, 300),            # MCP calls per token (a model may call several tools per answer)
+    "mcp-bad-token": (20, 300),   # wrong MCP tokens per address
 }
 
 _hits: dict[tuple[str, str], deque[float]] = {}

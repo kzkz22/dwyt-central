@@ -209,7 +209,7 @@ Ellenőrzés egy másik belső gépről: `curl -m 5 http://DWYT-IP:8000/healthz`
 
 **A valódi kliens-cím.** A `central.env`-ben a `FORWARDED_ALLOW_IPS` az Apache-gép címe legyen, `*` soha. A kéréskorlátok (admin-belépés, Google-belépés indítása, meghívólink, futtató-párosítás) erre a címre vonatkoznak. A `dwyt-central-cli check` szól, ha nincs beállítva.
 
-**fail2ban az Apache-gépen (ajánlott).** A hibás admin-belépés `401`-et, a kéréskorlát `429`-et ad. A fail2ban ezekből tiltja ki a próbálkozó címet a tűzfalon.
+**fail2ban az Apache-gépen (ajánlott).** A hibás admin-belépés és a hibás MCP-token `401`-et, a kéréskorlát `429`-et ad. A fail2ban ezekből tiltja ki a próbálkozó címet a tűzfalon.
 
 Az Apache-gépen kell futnia (nem a központ LXC-jében), mert az Apache naplóját olvassa, és ott tilt.
 

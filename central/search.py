@@ -42,9 +42,12 @@ class Filters:
     mode: str = ""      # local | cloud | captions (of the main transcript)
     date_from: date | None = None
     date_to: date | None = None
+    public_only: bool = False  # leave out own recordings (MCP tokens without access to them)
 
     def sql(self) -> tuple[str, dict[str, Any]]:
         where, params = [], {}
+        if self.public_only:
+            where.append("i.is_public")
         if self.channel:
             where.append("src.meta->>'channel' = :f_channel")
             params["f_channel"] = self.channel

@@ -167,3 +167,4 @@ mark { background: var(--warn-bg); color: inherit; padding: 0 1px; }
   .top nav { order: 3; flex: 1 0 100%; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; white-space: nowrap; }
   .top .muted { margin-left: auto; }
 }
+.token { word-break: break-all; user-select: all; }

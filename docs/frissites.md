@@ -64,6 +64,18 @@ Egyszeri lépések, a fenti frissítés **előtt**:
 2. Az értesítést mindenki maga állítja be a Beállítások oldalon: **ntfy** (telefonos alkalmazás, alapból az `ntfy.sh` szerverrel) vagy **Home Assistant** (cím, `notify` szolgáltatás, hosszú élettartamú token).
 3. A felhasználók által megadott címek nem mutathatnak belső hálózatra (így a központ nem használható a belső gépek elérésére). Az admin a saját belső Home Assistantjét enélkül is megadhatja; ha más felhasználónak is engedni kell egy belső hálózatot, a `central.env`-be: `NOTIFY_PRIVATE_NETS=192.168.1.0/24`, majd `systemctl restart dwyt-central`.
 
+## Frissítés a 4c részre (MCP)
+
+1. A fenti frissítés (a `pip install` hozza az `mcp` csomagot; az adatbázis-migráció magától lefut).
+2. Az Apache-gépen a fail2ban szűrője kapjon egy sort a hibás MCP-tokenekre (a repó `deploy/fail2ban/filter-dwyt.conf` fájlja szerint), majd `systemctl reload fail2ban`:
+
+   ```bash
+   # Apache-gépen
+   curl -sSfL -o /etc/fail2ban/filter.d/dwyt.conf https://raw.githubusercontent.com/kzkz22/dwyt-central/main/deploy/fail2ban/filter-dwyt.conf
+   systemctl reload fail2ban
+   ```
+3. A tokeneket mindenki maga hozza létre a Beállítások oldalon; a kliensek beállítása: [mcp.md](mcp.md).
+
 ## Protokollváltás
 
 Ha egy frissítés új protokollverziót hoz, a központ az előzőt is elfogadja egy ideig; a túl régi futtató a Futtatók oldalon „régi protokoll” jelzést kap, és a futtató maga is kiírja: `uv tool upgrade dwyt-runner`.
