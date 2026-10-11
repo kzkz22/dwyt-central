@@ -52,6 +52,21 @@
   {% endif %}
 </section>
 
+<section class="card" id="sajat">
+  <h2>Címkék és jegyzet</h2>
+  {% if tags %}<p class="actions">{% for t in tags %}<a class="badge" href="/?cimke={{ t|urlencode }}">{{ t }}</a>{% endfor %}</p>{% endif %}
+  <form method="post" action="/elem/{{ item.id }}/cimkek" class="filters">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <input type="search" name="tags" value="{{ tags|join(', ') }}" placeholder="címkék vesszővel elválasztva" aria-label="Címkék" maxlength="900">
+    <button class="secondary small">Mentés</button>
+  </form>
+  <form method="post" action="/elem/{{ item.id }}/jegyzet" class="stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <label>Jegyzet <textarea name="note" rows="{{ 4 if item.note else 2 }}" maxlength="20000">{{ item.note or '' }}</textarea></label>
+    <p><button class="secondary small">Jegyzet mentése</button></p>
+  </form>
+</section>
+
 <section class="card transcript">
   <div class="bar"><h2>Átirat</h2>
   {% if translation %}
@@ -94,6 +109,21 @@
       <input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="danger small">Átirat törlése</button>
     </form>
   </div>
+  {% if labels %}
+  <details class="regen">
+    <summary>Beszélők elnevezése{% if names %} ({{ names|length }}){% endif %}</summary>
+    <form method="post" action="/elem/{{ item.id }}/atirat/{{ transcript.id }}/beszelok" class="stack">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <div class="grid">
+      {% for label in labels %}
+        <label>{{ label }} <input type="hidden" name="label_{{ loop.index0 }}" value="{{ label }}"><input name="name_{{ loop.index0 }}" value="{{ names.get(label, '') }}" maxlength="60" placeholder="név"></label>
+      {% endfor %}
+      </div>
+      <p class="muted">A nevek csak nálad látszanak: az átiratban, az összefoglalóban, a letöltésekben és az MCP-n át.</p>
+      <p><button class="secondary small">Mentés</button></p>
+    </form>
+  </details>
+  {% endif %}
   {% for w in transcript.warnings %}<p class="warn-box">{{ w }}</p>{% endfor %}
   {% for p in paragraphs %}
   <div class="para{% if view == 'mindketto' %} pair{% endif %}" id="t{{ p.start|int }}">

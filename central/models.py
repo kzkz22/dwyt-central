@@ -36,6 +36,8 @@ class User(Base):
     translate_auto: Mapped[bool] = mapped_column(Boolean, default=True)
     quota_storage_mb: Mapped[int | None] = mapped_column(Integer)
     quota_upload_mb: Mapped[int | None] = mapped_column(Integer)
+    totp_after_google: Mapped[bool] = mapped_column(Boolean, default=False)
+    totp_pending_secret: Mapped[str | None] = mapped_column(Text)
 
 
 class Invite(Base):
@@ -217,6 +219,7 @@ class Item(Base):
     created_at: Mapped[datetime] = _now()
     updated_at: Mapped[datetime] = _now()
     notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    note: Mapped[str | None] = mapped_column(Text)
     source: Mapped[Source] = relationship(lazy="joined")
 
 
@@ -227,6 +230,14 @@ class ItemTranscript(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     reused: Mapped[bool] = mapped_column(Boolean, default=False)
     added_at: Mapped[datetime] = _now()
+    speaker_names: Mapped[dict[str, Any]] = mapped_column(default=dict)
+
+
+class ItemTag(Base):
+    __tablename__ = "item_tags"
+    item_id: Mapped[int] = mapped_column(ForeignKey("items.id", ondelete="CASCADE"), primary_key=True)
+    tag: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
 
 
 class ItemSummary(Base):

@@ -21,7 +21,7 @@ from fakes import FakeEmbed, FakeGoogle, FakeNotify, FakeYoutube  # noqa: E402
 from pgcluster import Cluster  # noqa: E402
 
 PROTO = {"Dwyt-Protocol": "1"}
-TABLES = ("mcp_tokens, notifications, notify_settings, youtube_links, inbox_entries, subscriptions, "
+TABLES = ("item_tags, mcp_tokens, notifications, notify_settings, youtube_links, inbox_entries, subscriptions, "
           "channel_videos, channels, "
           "uploads, index_queue, chunks, item_translations, translation_segments, translations, "
           "jobs, item_summaries, item_transcripts, items, summaries, segments, transcripts, sources, "

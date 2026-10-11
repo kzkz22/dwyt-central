@@ -7,7 +7,11 @@
   <h2>Meghívó</h2>
   <p class="muted">Regisztráció: {{ {'invite': 'meghívással', 'open': 'nyitott', 'closed': 'zárt'}.get(registration, registration) }}. A meghívó 7 napig érvényes, egyszer használható.</p>
   {% if invite_link %}
-  <p class="warn-box" role="status">Meghívó ide: <strong>{{ invite_email }}</strong>. Másold ki és küldd el neki (csak most látszik):<br><code class="copy">{{ invite_link }}</code></p>
+  {% if mail_status == 'sent' %}
+  <p class="notice" role="status">Meghívó elküldve e-mailben ide: <strong>{{ invite_email }}</strong>. A link (csak most látszik, ha másképp is el akarod küldeni):<br><code class="copy">{{ invite_link }}</code></p>
+  {% else %}
+  <p class="warn-box" role="status">Meghívó ide: <strong>{{ invite_email }}</strong>.{% if mail_status %} <span class="error-text">{{ mail_status }}</span>{% endif %} Másold ki és küldd el neki (csak most látszik):<br><code class="copy">{{ invite_link }}</code></p>
+  {% endif %}
   {% endif %}
   <form method="post" action="/admin/meghivo" class="actions">
     <input type="hidden" name="csrf_token" value="{{ csrf }}">

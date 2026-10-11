@@ -60,7 +60,7 @@ def _srt_time(seconds: float) -> str:
     return f"{ms // 3600000:02d}:{ms % 3600000 // 60000:02d}:{ms % 60000 // 1000:02d},{ms % 1000:03d}"
 
 
-def to_txt(item: Any, t: Any, hu: dict[int, str] | None = None) -> str:
+def to_txt(item: Any, t: Any, hu: dict[int, str] | None = None, names: dict[str, str] | None = None) -> str:
     """The transcript as text, paragraph per speaker turn; with hu, the Hungarian translation in the
     same layout (lines without a translation keep the original)."""
     meta = item.source.meta or {}
@@ -74,28 +74,31 @@ def to_txt(item: Any, t: Any, hu: dict[int, str] | None = None) -> str:
     language = f"hu (fordítás, eredeti: {t.language or '?'})" if hu is not None else (t.language or "?")
     lines += [f"Nyelv: {language}", f"Átirat: {describe_transcript(t)}"]
     if t.diarized and t.speakers:
-        lines.append("Beszélők: " + ", ".join(str(sp.get("label")) for sp in t.speakers if sp.get("label")))
+        lines.append("Beszélők: " + ", ".join(str((names or {}).get(sp.get("label"), sp.get("label")))
+                                              for sp in t.speakers if sp.get("label")))
     for warning in t.warnings or []:
         lines.append(f"Figyelmeztetés: {warning}")
     lines.append("")
     for p in turns(t.segments):
         text = " ".join(hu.get(i) or "" for i in p["idx"]).strip() if hu is not None else p["text"]
-        who = f" {p['speaker']}:" if p["speaker"] else ""
+        speaker = (names or {}).get(p["speaker"], p["speaker"])
+        who = f" {speaker}:" if speaker else ""
         lines += [f"[{hms(p['start'])}]{who} {text or p['text']}", ""]
     return "\n".join(lines).rstrip() + "\n"
 
 
-def to_srt(t: Any, hu: dict[int, str] | None = None) -> str:
+def to_srt(t: Any, hu: dict[int, str] | None = None, names: dict[str, str] | None = None) -> str:
     cues = []
     for n, seg in enumerate(t.segments, 1):
         end = max(seg.end_s, seg.start_s + 0.3)
-        who = f"[{seg.speaker}] " if seg.speaker else ""
+        speaker = (names or {}).get(seg.speaker, seg.speaker)
+        who = f"[{speaker}] " if speaker else ""
         body = (hu.get(seg.idx) or seg.text) if hu is not None else seg.text
         cues.append(f"{n}\n{_srt_time(seg.start_s)} --> {_srt_time(end)}\n{who}{body}\n")
     return "\n".join(cues)
 
 
-def summary_markdown(item: Any, summary: Any) -> str:
+def summary_markdown(item: Any, summary: Any, names: dict[str, str] | None = None) -> str:
     meta = item.source.meta or {}
     head = [f"# {item_title(item)}"]
     if item.source.url:
@@ -105,7 +108,8 @@ def summary_markdown(item: Any, summary: Any) -> str:
     if meta.get("duration_s"):
         head.append(f"Hossz: {hms(meta['duration_s'])}")
     head.append(f"Összefoglaló: {summary.model_used or summary.model or summary.role}, {summary.created_at:%Y-%m-%d}")
-    return "\n".join(head) + "\n\n" + summary.text.strip() + "\n"
+    from .personal import rename_text
+    return "\n".join(head) + "\n\n" + rename_text(summary.text.strip(), names or {}) + "\n"
 
 
 def file_base(item: Any, fallback: str) -> str:

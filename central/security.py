@@ -56,16 +56,24 @@ def new_totp_secret() -> str:
     return pyotp.random_base32()
 
 
-def totp_uri(user: User) -> str:
-    return pyotp.TOTP(user.totp_secret).provisioning_uri(name=user.email, issuer_name=TOTP_ISSUER)
+def totp_uri(user: User, secret: str | None = None) -> str:
+    return pyotp.TOTP(secret or user.totp_secret).provisioning_uri(name=user.email, issuer_name=TOTP_ISSUER)
 
 
-def check_totp(user: User, code: str, now: float | None = None) -> bool:
-    """Accept the current code or the one before/after it (clock drift), each only once."""
+def totp_qr_svg(uri: str) -> str:
+    """The provisioning URI as an inline SVG QR code (no data: URLs under the page's CSP)."""
+    import segno
+    return segno.make(uri, error="m").svg_inline(scale=4, dark="#111", light="#fff")
+
+
+def check_totp(user: User, code: str, now: float | None = None, secret: str | None = None) -> bool:
+    """Accept the current code or the one before/after it (clock drift), each only once.
+    secret: a secret being set up (not yet the user's)."""
     code = "".join(ch for ch in code if ch.isdigit())
-    if len(code) != 6 or not user.totp_secret:
+    secret = secret or user.totp_secret
+    if len(code) != 6 or not secret:
         return False
-    totp = pyotp.TOTP(user.totp_secret)
+    totp = pyotp.TOTP(secret)
     now = time.time() if now is None else now
     step_now = int(now // totp.interval)
     for step in (step_now - 1, step_now, step_now + 1):

@@ -69,6 +69,15 @@ class Settings:
     # Notifications (round 4b): user-given ntfy / Home Assistant addresses may point into these
     # private networks (comma-separated CIDRs, e.g. 192.168.1.0/24); admins may always use them
     notify_private_nets: str = field(default_factory=lambda: _env("NOTIFY_PRIVATE_NETS"))
+    # Round 5: a code from the authenticator app after Google sign-in for everyone (else each user's choice)
+    require_totp: bool = field(default_factory=lambda: _bool("REQUIRE_TOTP", False))
+    # Invitations by e-mail (empty SMTP_HOST: the admin copies the link)
+    smtp_host: str = field(default_factory=lambda: _env("SMTP_HOST"))
+    smtp_port: int = field(default_factory=lambda: int(_env("SMTP_PORT", "587")))
+    smtp_security: str = field(default_factory=lambda: _env("SMTP_SECURITY", "starttls").lower())  # starttls|ssl|none
+    smtp_user: str = field(default_factory=lambda: _env("SMTP_USER"))
+    smtp_password: str = field(default_factory=lambda: _env("SMTP_PASSWORD"))
+    smtp_from: str = field(default_factory=lambda: _env("SMTP_FROM"))
     youtube_url: str = field(default_factory=lambda: _env("YOUTUBE_URL", "https://www.youtube.com").rstrip("/"))
     google_api_url: str = field(default_factory=lambda: _env(
         "GOOGLE_API_URL", "https://www.googleapis.com").rstrip("/"))

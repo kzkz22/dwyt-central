@@ -6,7 +6,7 @@ per-user libraries (strictly separated; PostgreSQL row-level security as a secon
 with per-user tokens. It never holds users' API keys and never calls a runner: runners connect out
 (HTTPS long-poll) and claim jobs by their declared capabilities.
 
-Status: rounds 1–4 implemented (sign-in, invitations, RLS library, runner protocol, captions/cloud/local
+Status: rounds 1–5 implemented (sign-in, invitations, RLS library, runner protocol, captions/cloud/local
 transcription, summary and translate jobs; search: `indexing.py` shared chunks + indexer thread in the web process,
 `search.py` FTS + pg_trgm + pgvector fused by RRF, `embedder.py` = separate `dwyt-central-embed` service;
 `reuse.py`: shareable results taken over at submit; `ownfiles.py`: browser uploads staged until the runner
@@ -20,7 +20,10 @@ per-user subscriptions + inbox, fan-out, the captions → local → cloud chain 
 retries + daily digest in the `Background` thread, user URLs never private unless NOTIFY_PRIVATE_NETS or admin).
 4c: `mcp_server.py` (/mcp, stateless Streamable HTTP, per-user hashed tokens with can_start /
 include_private, caller in a contextvar, two SDK servers by permission, rate limit per token), `submit.py` (shared
-submit / re-transcribe logic for web and MCP). Round 4 done; round 5 next.
+submit / re-transcribe logic for web and MCP); round 5: `personal.py` (tags, note, speaker names applied at display/
+download/export/MCP), `export.py` (ZIP: Markdown or JSON), account deletion (`accounts.delete_user`), own TOTP after
+Google (`totp_after_google`, REQUIRE_TOTP, `/belepes/kod`, `/belepes/kod-beallitas`), `mailer.py` (SMTP invites).
+Open: passkeys (waiting for the owner's decision).
 Source of truth: `dwyt-docs` (`docs/terv.md`, `docs/protokoll.md`). Install: `docs/telepites.md`; tests need PostgreSQL
 (throw-away cluster from tests/pgcluster.py, or TEST_DATABASE_URL as superuser).
 License: AGPL-3.0.

@@ -76,6 +76,12 @@ Egyszeri lépések, a fenti frissítés **előtt**:
    ```
 3. A tokeneket mindenki maga hozza létre a Beállítások oldalon; a kliensek beállítása: [mcp.md](mcp.md).
 
+## Frissítés az 5. körre (címkék, jegyzet, beszélőnevek, export, fióktörlés, kétlépcsős belépés, meghívó e-mailben)
+
+1. A fenti frissítés (az adatbázis-migráció magától lefut).
+2. Ha a meghívók e-mailben menjenek: a `central.env`-be az `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURITY`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` sorok (minta: `deploy/dwyt-central/central.env.example`), majd `systemctl restart dwyt-central`. Nélkülük minden marad a régiben: az admin kimásolja a linket.
+3. Ha mindenkinek kötelező legyen a Google után a hitelesítő alkalmazás kódja: `REQUIRE_TOTP=true`. Aki még nem állította be, a következő belépéskor beállíttatja vele. Alapból mindenki maga kapcsolhatja be a Beállítások oldalon.
+
 ## Protokollváltás
 
 Ha egy frissítés új protokollverziót hoz, a központ az előzőt is elfogadja egy ideig; a túl régi futtató a Futtatók oldalon „régi protokoll” jelzést kap, és a futtató maga is kiírja: `uv tool upgrade dwyt-runner`.

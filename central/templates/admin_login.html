@@ -1,8 +1,8 @@
 {% extends "base.html" %}
-{% block title %}Admin belépés{% endblock %}
+{% block title %}{{ 'Admin belépés' if admin or step == 'password' else 'Belépés' }}{% endblock %}
 {% block content %}
 <section class="login card">
-  <h1>Admin belépés</h1>
+  <h1>{{ 'Admin belépés' if admin or step == 'password' else 'Belépés' }}</h1>
   {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
   {% if step == "password" %}
   <form method="post" action="/admin-belepes">
@@ -10,8 +10,19 @@
     <label>Jelszó <input name="password" type="password" autocomplete="current-password" required></label>
     <button>Tovább</button>
   </form>
+  {% elif step == "enroll" %}
+  <p>Ezen a központon a belépéshez a Google mellé egy hitelesítő alkalmazás kódja is kell. Olvasd be a kódot a hitelesítő alkalmazással (Google Authenticator, Microsoft Authenticator, Aegis, 1Password…), majd írd be az általa mutatott 6 jegyű kódot.</p>
+  <div class="qr">{{ qr }}</div>
+  <p class="muted">Kézi megadáshoz: <code class="token">{{ secret }}</code></p>
+  <form method="post" action="/belepes/kod-beallitas">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <label>A 6 jegyű kód
+      <input name="code" inputmode="numeric" pattern="[0-9 ]{6,7}" maxlength="7" autocomplete="one-time-code" required autofocus>
+    </label>
+    <button>Belépés</button>
+  </form>
   {% else %}
-  <form method="post" action="/admin-belepes/kod">
+  <form method="post" action="{{ '/admin-belepes/kod' if admin else '/belepes/kod' }}">
     <input type="hidden" name="csrf_token" value="{{ csrf }}">
     <label>A hitelesítő alkalmazás 6 jegyű kódja
       <input name="code" inputmode="numeric" pattern="[0-9 ]{6,7}" maxlength="7" autocomplete="one-time-code" required autofocus>

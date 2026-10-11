@@ -55,9 +55,9 @@ Rossz vagy visszavont tokennel `401`, túl sok kéréssel `429` jön.
 | Eszköz | Mit tud |
 | --- | --- |
 | `kereses` | Keresés szóra, szórészletre és jelentésre, mint a felületen; szűrés csatornára, nyelvre, dátumra. Elemenként legfeljebb 3 találat időponttal és YouTube-linkkel. |
-| `atirat` | Egy elem átirata eredetiben, magyarul vagy mindkettőben, időszakra szűkíthetően; hosszú átiratnál részletekben (a válasz végén a folytatás helye). |
+| `atirat` | Egy elem átirata eredetiben, magyarul vagy mindkettőben, időszakra szűkíthetően, a beszélők általad adott nevével, a címkékkel és a jegyzettel; hosszú átiratnál részletekben (a válasz végén a folytatás helye). |
 | `osszefoglalo` | Az elem aktuális magyar összefoglalója. |
-| `legutobbiak` | A legutóbb bekerült elemek, csatornára szűrhetően. |
+| `legutobbiak` | A legutóbb bekerült elemek, csatornára vagy címkére szűrhetően, a címkékkel. |
 | `atiras_inditasa` | Csak az indításra jogosult tokennel. Új videó URL-je vagy meglévő elem újraírása; alapból YouTube-felirat, helyi Whisper kérésre, felhő csak kifejezett kérésre. A munkát a futtatód végzi. |
 | `munka_allapota` | Csak az indításra jogosult tokennel. Egy munka állapota, a hosszú munkáknál a haladás is. |
 

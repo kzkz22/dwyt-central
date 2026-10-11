@@ -8,7 +8,7 @@ A **dwyt** központja: webes felület, belépés (Google + meghívás), felhaszn
 
 ## Állapot
 
-Az 1–3. kör kész (a 3c résszel együtt):
+Az 1–5. kör kész:
 
 - belépés Google-lel, meghívással (vagy telepítéskor választva nyitottan); admin tartalékbelépés jelszóval és TOTP-vel;
 - felhasználónként külön könyvtár; a szétválasztást az adatbázis sorvédelme (row-level security) is őrzi;
@@ -20,9 +20,8 @@ Az 1–3. kör kész (a 3c résszel együtt):
 - könyvtár szűréssel és összefoglaló-előnézettel; a hiányzó összefoglalók, fordítások és az index pótlása egy gombbal;
 - YouTube-feliratkozások (a YouTube-fiókból, Takeout-fájlból vagy kézzel), csatornánkénti szabály, postaláda; a feliratkozásos videók láncolata: felirat → helyi Whisper → felhő, ha engedélyezett (4a).;
 - értesítés ntfy-jal vagy Home Assistanttel: kész munka, hiba, a feliratkozásokról napi összesítő vagy csatornánként azonnal (4b);
-- MCP a `/mcp` címen, felhasználónkénti, visszavonható tokenekkel (4c): [docs/mcp.md](docs/mcp.md).
-
-Következik az 5. kör: passkey, címkék, jegyzet, beszélőnevek, export, a régi könyvtár behozatala, fióktörlés.
+- MCP a `/mcp` címen, felhasználónkénti, visszavonható tokenekkel (4c): [docs/mcp.md](docs/mcp.md);
+- címkék, jegyzet és beszélőnevek az elemeken; a könyvtár exportja (Markdown vagy JSON); fióktörlés a felhasználó által; kétlépcsős belépés (hitelesítő alkalmazás a Google után, kötelezővé is tehető); meghívó e-mailben (5. kör).
 
 ## Fejlesztés
 

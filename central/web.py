@@ -20,22 +20,25 @@ from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
+from fastapi.responses import (HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response,
+                               StreamingResponse)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from markupsafe import Markup
 from starlette.routing import Route
 from sqlalchemy import func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from starlette.concurrency import run_in_threadpool
 
-from . import (accounts, db, indexing, items, jobs, library, mcp_server, notify, ownfiles, protocol, ratelimit,
-               render, search, secretbox, security, sources, subscriptions, youtube)
+from . import (accounts, db, export, indexing, items, jobs, library, mailer, mcp_server, notify, ownfiles, personal,
+               protocol, ratelimit, render, search, secretbox, security, sources, subscriptions, youtube)
 from . import submit as submit_mod
 from .submit import CLOUD_MODELS, LOCAL_MODELS, MODES, parse_options
 from .config import Settings, get_settings
 from .db import utcnow
-from .models import (ACTIVE, Channel, InboxEntry, Invite, Item, ItemSummary, ItemTranscript, ItemTranslation, Job,
-                     LoginState, Runner, Session, Source, Subscription, Summary, Transcript, Translation, Upload, User)
+from .models import (ACTIVE, Channel, InboxEntry, Invite, Item, ItemSummary, ItemTag, ItemTranscript, ItemTranslation,
+                     Job, LoginState, Runner, Session, Source, Subscription, Summary, Transcript, Translation, Upload,
+                     User)
 
 log = logging.getLogger("dwyt")
 HERE = Path(__file__).resolve().parent
@@ -321,20 +324,25 @@ async def google_callback(request: Request, state: str = "", code: str = "", err
         who, invite_hash = accounts.finish(login, settings, code)
         with db.system_session() as s:
             user = accounts.resolve_user(s, settings, who, invite_hash)
-            security.record_success(user)
             security.purge_expired(s)
+            if user.totp_after_google or settings.require_totp:  # the code comes next (login_code)
+                nxt = "/belepes/kod" if user.totp_secret else "/belepes/kod-beallitas"
+                return security.start_session(s, user, "pending", settings.session_days, _client_ip(request),
+                                              request.headers.get("user-agent")), nxt
+            security.record_success(user)
             return security.start_session(s, user, "active", settings.session_days, _client_ip(request),
-                                          request.headers.get("user-agent"))
+                                          request.headers.get("user-agent")), "/"
 
     try:
-        token = await run_in_threadpool(sign_in)
+        token, nxt = await run_in_threadpool(sign_in)
     except accounts.SignInError as exc:
         response = _message(request, None, "A belépés nem sikerült", str(exc), "/belepes", 403)
         response.delete_cookie(LOGIN_COOKIE, path="/auth/google")
         return response
-    response = _redirect("/")
+    response = _redirect(nxt)
     response.delete_cookie(LOGIN_COOKIE, path="/auth/google")
-    _set_cookie(response, token, settings, int(settings.session_days * 86400))
+    _set_cookie(response, token, settings,
+                security.PENDING_MINUTES * 60 if nxt != "/" else int(settings.session_days * 86400))
     return response
 
 
@@ -413,50 +421,97 @@ def _pending(request: Request) -> Session | None:
 
 
 @app.get("/admin-belepes/kod", response_class=HTMLResponse)
-def admin_code_page(request: Request):
+@app.get("/belepes/kod", response_class=HTMLResponse)
+def code_page(request: Request):
     sess = _pending(request)
     if sess is None:
-        return _redirect("/admin-belepes")
-    return _render(request, "admin_login.html", step="code", csrf=sess.csrf_token)
+        return _redirect("/belepes")
+    return _render(request, "admin_login.html", step="code", csrf=sess.csrf_token, admin=_is_admin_path(request))
+
+
+def _is_admin_path(request: Request) -> bool:
+    return request.url.path.startswith("/admin-belepes")
+
+
+def _activate(request: Request, enroll: bool):
+    """Turn a pending session into an active one with a right code (enroll: the code of a new secret)."""
+    async def handler():
+        if (limited := _limited(request, "admin-login")) is not None:
+            return limited
+        form = await request.form()
+        settings = get_settings()
+        old_token = request.cookies.get(security.COOKIE)
+
+        def attempt() -> tuple[str | None, str | None]:
+            with db.system_session() as s:
+                sess = security.find_session(s, old_token)
+                if sess is None or sess.state != "pending":
+                    return None, "expired"
+                if not secrets.compare_digest(str(form.get("csrf_token", "")), sess.csrf_token):
+                    return None, "expired"
+                user = s.get(User, sess.user_id, with_for_update=True)
+                if security.lock_seconds_left(user):
+                    return None, f"Túl sok hibás próbálkozás; várj {security.lock_seconds_left(user)} másodpercet."
+                if enroll and (user.totp_secret or not user.totp_pending_secret):
+                    return None, "expired"
+                secret = user.totp_pending_secret if enroll else None
+                if not security.check_totp(user, str(form.get("code", "")), secret=secret):
+                    security.record_failure(user)
+                    log.warning("login code failed from %s", _client_ip(request))
+                    return None, "Hibás kód."
+                if enroll:
+                    user.totp_secret, user.totp_pending_secret, user.totp_after_google = secret, None, True
+                security.record_success(user)
+                security.end_session(s, old_token)
+                return security.start_session(s, user, "active", settings.session_days, _client_ip(request),
+                                              request.headers.get("user-agent")), None
+
+        token, error = await run_in_threadpool(attempt)
+        if error == "expired":
+            return _redirect("/admin-belepes" if _is_admin_path(request) else "/belepes")
+        if error:
+            if enroll:
+                return await run_in_threadpool(_enroll_page, request, error)
+            sess = _pending(request)
+            return _render(request, "admin_login.html", step="code", error=error, admin=_is_admin_path(request),
+                           csrf=sess.csrf_token if sess else "", status_code=401)
+        response = _redirect("/")
+        _set_cookie(response, token, settings, int(settings.session_days * 86400))
+        return response
+    return handler
 
 
 @app.post("/admin-belepes/kod")
-async def admin_code(request: Request):
-    if (limited := _limited(request, "admin-login")) is not None:
-        return limited
-    form = await request.form()
-    settings = get_settings()
-    old_token = request.cookies.get(security.COOKIE)
+@app.post("/belepes/kod")
+async def code_submit(request: Request):
+    return await _activate(request, enroll=False)()
 
-    def attempt() -> tuple[str | None, str | None]:
-        with db.system_session() as s:
-            sess = security.find_session(s, old_token)
-            if sess is None or sess.state != "pending":
-                return None, "expired"
-            if not secrets.compare_digest(str(form.get("csrf_token", "")), sess.csrf_token):
-                return None, "expired"
-            user = s.get(User, sess.user_id, with_for_update=True)
-            if security.lock_seconds_left(user):
-                return None, f"Túl sok hibás próbálkozás; várj {security.lock_seconds_left(user)} másodpercet."
-            if not security.check_totp(user, str(form.get("code", ""))):
-                security.record_failure(user)
-                log.warning("admin code login failed from %s", _client_ip(request))
-                return None, "Hibás kód."
-            security.record_success(user)
-            security.end_session(s, old_token)
-            return security.start_session(s, user, "active", settings.session_days, _client_ip(request),
-                                          request.headers.get("user-agent")), None
 
-    token, error = await run_in_threadpool(attempt)
-    if error == "expired":
-        return _redirect("/admin-belepes")
-    if error:
-        sess = _pending(request)
-        return _render(request, "admin_login.html", step="code", error=error,
-                       csrf=sess.csrf_token if sess else "", status_code=401)
-    response = _redirect("/")
-    _set_cookie(response, token, settings, int(settings.session_days * 86400))
-    return response
+def _enroll_page(request: Request, error: str | None = None):
+    """Setting up the authenticator app while signing in (REQUIRE_TOTP and no secret yet)."""
+    with db.system_session() as s:
+        sess = security.find_session(s, request.cookies.get(security.COOKIE))
+        if sess is None or sess.state != "pending":
+            return _redirect("/belepes")
+        user = s.get(User, sess.user_id)
+        if user.totp_secret:
+            return _redirect("/belepes/kod")
+        if not user.totp_pending_secret:
+            user.totp_pending_secret = security.new_totp_secret()
+        uri = security.totp_uri(user, user.totp_pending_secret)
+        secret, csrf = user.totp_pending_secret, sess.csrf_token
+    return _render(request, "admin_login.html", step="enroll", csrf=csrf, error=error,
+                   qr=Markup(security.totp_qr_svg(uri)), secret=secret, status_code=401 if error else 200)
+
+
+@app.get("/belepes/kod-beallitas", response_class=HTMLResponse)
+def enroll_page(request: Request):
+    return _enroll_page(request)
+
+
+@app.post("/belepes/kod-beallitas")
+async def enroll_submit(request: Request):
+    return await _activate(request, enroll=True)()
 
 
 @app.post("/kilepes")
@@ -492,9 +547,10 @@ def _like(q: str) -> str:
 
 
 @app.get("/", response_class=HTMLResponse)
-def library_page(request: Request, oldal: int = 1, q: str = "", szures: str = "",
+def library_page(request: Request, oldal: int = 1, q: str = "", szures: str = "", cimke: str = "",
                  viewer: Viewer = Depends(current_viewer)):
     q = q.strip()[:200]
+    cimke = cimke.strip()[:personal.TAG_LEN]
     szures = szures if szures in LIBRARY_FILTERS else ""
     with db.user_session(viewer.id) as s:
         active = set(s.scalars(select(Job.item_id).where(Job.state.in_(ACTIVE))).all())
@@ -502,7 +558,10 @@ def library_page(request: Request, oldal: int = 1, q: str = "", szures: str = ""
         if q:
             like = _like(q)
             query = query.where(or_(Item.title.ilike(like), Source.meta["title"].astext.ilike(like),
-                                    Source.meta["channel"].astext.ilike(like), Source.url.ilike(like)))
+                                    Source.meta["channel"].astext.ilike(like), Source.url.ilike(like),
+                                    Item.note.ilike(like)))
+        if cimke:
+            query = query.where(Item.id.in_(select(ItemTag.item_id).where(func.lower(ItemTag.tag) == cimke.lower())))
         if szures == "nyilvanos":
             query = query.where(Item.is_public.is_(True))
         elif szures == "sajat":
@@ -521,9 +580,11 @@ def library_page(request: Request, oldal: int = 1, q: str = "", szures: str = ""
         previews = {sm.id: render.plain_preview(sm.text) for sm in s.scalars(select(Summary).where(
             Summary.id.in_([i.current_summary_id for i in found if i.current_summary_id])))}
         has_runner = s.scalar(select(func.count()).select_from(Runner).where(Runner.revoked_at.is_(None))) or 0
+        item_tags = personal.tags_by_item(s, [i.id for i in found])
+        tag_list = personal.all_tags(s)
     return _render(request, "library.html", viewer, items=found, active=active, page=page, pages=pages, total=total,
                    has_runner=has_runner, q=q, szures=szures, filters=LIBRARY_FILTERS, mains=mains,
-                   previews=previews)
+                   previews=previews, cimke=cimke, item_tags=item_tags, tag_list=tag_list)
 
 
 def _runners(s) -> list[Runner]:
@@ -578,6 +639,13 @@ def item_page(request: Request, item_id: int, atirat: int | None = None, nezet: 
         status = _status_context(s, item)
         runners = _runners(s)
         can_rerun = item.source.kind != "upload" or submit_mod.own_file_of(s, item) is not None
+        tags = personal.tags_of(s, item.id)
+        names = personal.names_for(s, item.id, chosen.id if chosen else None)
+        main_names = names if main is chosen else personal.names_for(s, item.id, main.id if main else None)
+        labels = personal.labels_of(chosen) if chosen else []
+        summary_names = personal.names_for(s, item.id, summary.transcript_id) if summary is not None else {}
+    for p in paragraphs:
+        p["speaker"] = personal.rename(p["speaker"], names)
     summary_html = None
     if summary is not None:
         starts = sorted(p["start"] for p in main_paragraphs)
@@ -588,7 +656,7 @@ def item_page(request: Request, item_id: int, atirat: int | None = None, nezet: 
                 return url, True
             anchor = max((st for st in starts if st <= seconds + 0.5), default=starts[0] if starts else 0)
             return f"/elem/{item.id}#t{int(anchor)}", False
-        summary_html = render.summary_html(summary.text, link)
+        summary_html = render.summary_html(personal.rename_text(summary.text, summary_names or main_names), link)
     translating = any(j.kind == "translate" for j in status["active_jobs"])
     summarizing = any(j.kind == "summarize" for j in status["active_jobs"])
     view = nezet if nezet in ("eredeti", "magyar", "mindketto") else ("mindketto" if translation else "eredeti")
@@ -599,8 +667,50 @@ def item_page(request: Request, item_id: int, atirat: int | None = None, nezet: 
                    summary_reused=summary_reused, summary_versions=versions, translation=translation,
                    view=view, reused=reused, translating=translating, summarizing=summarizing,
                    model_choices=_model_choices(runners, item), modes=MODES, cloud_models=CLOUD_MODELS,
-                   local_models=LOCAL_MODELS, can_rerun=can_rerun,
+                   local_models=LOCAL_MODELS, can_rerun=can_rerun, tags=tags, names=names, labels=labels,
                    can_translate=bool(chosen and jobs.needs_translation(chosen.language)), **status)
+
+
+@app.post("/elem/{item_id}/cimkek")
+async def save_tags(item_id: int, request: Request, viewer: Viewer = Depends(authed_post)):
+    tags = personal.parse_tags(str((await request.form()).get("tags") or ""))
+
+    def save() -> None:
+        with db.user_session(viewer.id) as s:
+            item = s.get(Item, item_id)
+            if item is not None:
+                personal.set_tags(s, item, tags)
+    await run_in_threadpool(save)
+    return _redirect(f"/elem/{item_id}#sajat")
+
+
+@app.post("/elem/{item_id}/jegyzet")
+async def save_note(item_id: int, request: Request, viewer: Viewer = Depends(authed_post)):
+    note = str((await request.form()).get("note") or "")
+
+    def save() -> None:
+        with db.user_session(viewer.id) as s:
+            item = s.get(Item, item_id)
+            if item is not None:
+                personal.set_note(item, note)
+                item.updated_at = utcnow()
+    await run_in_threadpool(save)
+    return _redirect(f"/elem/{item_id}#sajat")
+
+
+@app.post("/elem/{item_id}/atirat/{transcript_id}/beszelok")
+async def save_speaker_names(item_id: int, transcript_id: int, request: Request,
+                             viewer: Viewer = Depends(authed_post)):
+    form = await request.form()
+    given = {str(form.get(f"label_{i}") or ""): str(form.get(f"name_{i}") or "") for i in range(100)
+             if form.get(f"label_{i}")}
+
+    def save() -> None:
+        with db.user_session(viewer.id) as s:
+            if s.get(ItemTranscript, (item_id, transcript_id)) is not None:
+                personal.set_names(s, item_id, s.get(Transcript, transcript_id), given)
+    await run_in_threadpool(save)
+    return _redirect(f"/elem/{item_id}?atirat={transcript_id}")
 
 
 @app.get("/elem/{item_id}/allapot", response_class=HTMLResponse)
@@ -686,7 +796,8 @@ def download_summary(item_id: int, summary_id: int, viewer: Viewer = Depends(cur
         item = s.get(Item, item_id)
         if item is None or s.get(ItemSummary, (item_id, summary_id)) is None:
             return PlainTextResponse("Nincs ilyen összefoglaló.", status_code=404)
-        body = library.summary_markdown(item, s.get(Summary, summary_id))
+        summary = s.get(Summary, summary_id)
+        body = library.summary_markdown(item, summary, personal.names_for(s, item_id, summary.transcript_id))
         name = library.file_base(item, "osszefoglalo") + ".osszefoglalo.md"
     return _download(body, name, "osszefoglalo.md", "text/markdown")
 
@@ -709,7 +820,8 @@ def download_transcript(item_id: int, transcript_id: int, fmt: str, nyelv: str =
             if tid is None:
                 return PlainTextResponse("Ennek az átiratnak nincs magyar fordítása.", status_code=404)
             hu = {g.idx: g.text for g in s.get(Translation, tid).segments}
-        body = library.to_txt(item, t, hu) if fmt == "txt" else library.to_srt(t, hu)
+        names = personal.names_for(s, item_id, transcript_id)
+        body = library.to_txt(item, t, hu, names) if fmt == "txt" else library.to_srt(t, hu, names)
         name = f"{library.file_base(item, 'atirat')}.{'hu' if hu is not None else t.language or 'xx'}.{fmt}"
     return _download(body, name, f"atirat.{fmt}", "text/plain")
 
@@ -984,13 +1096,15 @@ def _usage(viewer: Viewer) -> dict[str, Any]:
 
 
 def _settings_page(request: Request, viewer: Viewer, saved: bool = False, message: str | None = None,
-                   error: bool = False, status: int = 200, new_token: str | None = None):
+                   error: bool = False, status: int = 200, new_token: str | None = None,
+                   enrolling: dict[str, Any] | None = None):
     with db.system_session() as s:
         translate_auto = s.get(User, viewer.id).translate_auto
     return _render(request, "settings.html", viewer, status_code=status, translate_auto=translate_auto, saved=saved,
                    usage=_usage(viewer), message=message, message_error=error, note_cfg=notify.get(viewer.id),
                    channels=notify.CHANNELS, last_note=notify.last(viewer.id), mcp_tokens=mcp_server.tokens(viewer.id),
-                   new_token=new_token, mcp_url=f"{get_settings().base_url}/mcp",
+                   new_token=new_token, mcp_url=f"{get_settings().base_url}/mcp", enrolling=enrolling,
+                   **_totp_state(viewer),
                    suggested_topic="dwyt-" + secrets.token_urlsafe(12).replace("_", "x").replace("-", "y"))
 
 
@@ -1019,6 +1133,97 @@ async def save_notifications(request: Request, viewer: Viewer = Depends(authed_p
     except (notify.NotifyError, secretbox.NoKey) as exc:
         return await run_in_threadpool(_settings_page, request, viewer, False, str(exc), True, 422)
     return await run_in_threadpool(_settings_page, request, viewer, True)
+
+
+@app.get("/export")
+async def export_library(formatum: str = "md", viewer: Viewer = Depends(current_viewer)):
+    fmt = formatum if formatum in export.FORMATS else "md"
+    data = await run_in_threadpool(export.build, viewer.id, fmt)
+
+    def chunks():
+        try:
+            while block := data.read(256 * 1024):
+                yield block
+        finally:
+            data.close()
+    name = f"dwyt-konyvtar-{utcnow():%Y-%m-%d}-{fmt}.zip"
+    return StreamingResponse(chunks(), media_type="application/zip",
+                             headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+def _totp_state(viewer: Viewer) -> dict[str, Any]:
+    with db.system_session() as s:
+        user = s.get(User, viewer.id)
+        return {"totp_on": user.totp_after_google, "totp_has_secret": bool(user.totp_secret),
+                "totp_required": get_settings().require_totp}
+
+
+@app.post("/beallitasok/kod/bekapcsolas")
+async def totp_start(request: Request, viewer: Viewer = Depends(authed_post)):
+    def start() -> tuple[str | None, str | None]:
+        with db.system_session() as s:
+            user = s.get(User, viewer.id)
+            if user.totp_secret:
+                return None, None  # an admin's existing app entry: confirm with its code
+            user.totp_pending_secret = security.new_totp_secret()
+            return security.totp_uri(user, user.totp_pending_secret), user.totp_pending_secret
+    uri, secret = await run_in_threadpool(start)
+    return await run_in_threadpool(_settings_page, request, viewer, False, None, False, 200, None,
+                                   {"qr": Markup(security.totp_qr_svg(uri)) if uri else None, "secret": secret})
+
+
+@app.post("/beallitasok/kod/megerosites")
+async def totp_confirm(request: Request, viewer: Viewer = Depends(authed_post)):
+    code = str((await request.form()).get("code") or "")
+
+    def confirm() -> bool:
+        with db.system_session() as s:
+            user = s.get(User, viewer.id, with_for_update=True)
+            secret = user.totp_secret or user.totp_pending_secret
+            if not security.check_totp(user, code, secret=secret):
+                return False
+            user.totp_secret, user.totp_pending_secret, user.totp_after_google = secret, None, True
+            return True
+    if not await run_in_threadpool(confirm):
+        return await run_in_threadpool(_settings_page, request, viewer, False, "Hibás kód; próbáld újra.", True, 422)
+    return await run_in_threadpool(_settings_page, request, viewer, False, "A kétlépcsős belépés bekapcsolva: a "
+                                   "Google után a hitelesítő alkalmazás kódját is kéri.")
+
+
+@app.post("/beallitasok/kod/kikapcsolas")
+async def totp_off(request: Request, viewer: Viewer = Depends(authed_post)):
+    code = str((await request.form()).get("code") or "")
+    if get_settings().require_totp:
+        return await run_in_threadpool(_settings_page, request, viewer, False, "Ezen a központon a kétlépcsős "
+                                       "belépés kötelező.", True, 422)
+
+    def off() -> bool:
+        with db.system_session() as s:
+            user = s.get(User, viewer.id, with_for_update=True)
+            if not security.check_totp(user, code):
+                return False
+            user.totp_after_google = False
+            if user.role != "admin":  # an admin keeps it for the password fallback login
+                user.totp_secret = None
+            return True
+    if not await run_in_threadpool(off):
+        return await run_in_threadpool(_settings_page, request, viewer, False, "Hibás kód.", True, 422)
+    return await run_in_threadpool(_settings_page, request, viewer, False, "A kétlépcsős belépés kikapcsolva.")
+
+
+@app.post("/beallitasok/fiok-torlese")
+async def delete_account(request: Request, viewer: Viewer = Depends(authed_post)):
+    typed = str((await request.form()).get("email") or "").strip().lower()
+    if typed != viewer.email.lower():
+        return await run_in_threadpool(_settings_page, request, viewer, False, "A törléshez a saját e-mail-címedet "
+                                       "kell beírni.", True, 422)
+    error = await run_in_threadpool(accounts.delete_user, get_settings(), viewer.id)
+    if error:
+        return await run_in_threadpool(_settings_page, request, viewer, False, error, True, 422)
+    response = _message(request, None, "A fiókod törölve", "A fiókodat, a könyvtáradat, a futtatóidat, a "
+                        "csatornáidat és a tokenjeidet töröltük. Viszlát!", "/belepes")
+    response.delete_cookie(security.COOKIE, path="/")
+    return response
 
 
 @app.post("/beallitasok/mcp")
@@ -1323,7 +1528,17 @@ async def create_invite(request: Request, viewer: Viewer = Depends(admin_post)):
         with db.system_session() as s:
             return accounts.create_invite(s, get_settings(), email, viewer.id)
     link = await run_in_threadpool(create)
-    return _render(request, "admin.html", viewer, **_admin_context(), invite_link=link, invite_email=email)
+    settings = get_settings()
+    mail_status = None
+    if mailer.configured(settings):
+        try:
+            await run_in_threadpool(mailer.invite, settings, email, link, viewer.name or viewer.email)
+            mail_status = "sent"
+        except mailer.MailError as exc:
+            log.warning("invite mail to %s failed: %s", email, exc)
+            mail_status = str(exc)
+    return _render(request, "admin.html", viewer, **_admin_context(), invite_link=link, invite_email=email,
+                   mail_status=mail_status)
 
 
 @app.post("/admin/meghivo/{invite_id}/visszavonas")

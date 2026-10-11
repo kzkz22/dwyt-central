@@ -24,7 +24,7 @@ from datetime import timedelta
 from urllib.parse import urlencode
 
 import httpx
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session as DbSession
 
 from .config import Settings
@@ -173,3 +173,28 @@ def invite_by_token(db: DbSession, token: str) -> Invite | None:
     if invite is None or invite.used_at or invite.revoked_at or invite.expires_at <= utcnow():
         return None
     return invite
+
+
+def delete_user(settings: Settings, user_id: int) -> str | None:
+    """The user deletes his own account: library, runners, channels, tokens, notifications go
+    (cascade); results shared with others stay with them (plan 5.7). Returns an error or None."""
+    from . import subscriptions
+    with db_session() as s:
+        user = s.get(User, user_id)
+        if user is None:
+            return None
+        if user.role == "admin":
+            admins = s.scalar(select(func.count()).select_from(User).where(User.role == "admin",
+                                                                           User.disabled.is_(False)))
+            if admins <= 1:
+                return ("Az utolsó admin nem törölheti magát; előbb hozz létre másik admint "
+                    "(dwyt-central-cli create-admin).")
+    subscriptions.unlink(settings, user_id)  # revoke the YouTube consent at Google too
+    with db_session() as s:
+        s.execute(delete(User).where(User.id == user_id))
+    return None
+
+
+def db_session():
+    from . import db
+    return db.system_session()

@@ -1,5 +1,15 @@
 {% extends "base.html" %}
-{% block title %}Beállítások{% endblock %}
+{% block title %}Beállítások
+<section class="card" id="fiok">
+  <h2>Fiók törlése</h2>
+  <p>Törlődik a fiókod, a könyvtárad (elemek, átiratok, összefoglalók, fordítások, címkék, jegyzetek), a futtatóid, a csatornáid és a postaládád, az értesítési beállításaid és az MCP-tokenjeid. A YouTube-hozzáférést a Google-nél is visszavonjuk. Más felhasználóknál a tőled átvett eredmények megmaradnak, név nélkül. Előtte érdemes exportálni.</p>
+  <form method="post" action="/beallitasok/fiok-torlese" class="filters confirm" data-confirm="Biztosan törlöd a fiókodat? Ez nem vonható vissza.">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <input type="search" name="email" placeholder="a megerősítéshez írd be: {{ viewer.email }}" aria-label="E-mail-cím a megerősítéshez" autocomplete="off" required>
+    <button class="danger small">Fiók végleges törlése</button>
+  </form>
+</section>
+{% endblock %}
 {% block content %}
 <h1>Beállítások</h1>
 {% if saved %}<p class="notice" role="status">Mentve.</p>{% endif %}
@@ -10,6 +20,38 @@
   <p class="muted">Ha ki van kapcsolva, a fordítás csak az elem oldalán, kérésre indul. A fordítást a futtatód végzi a saját LLM-jével; felhős modellnél ez költséggel jár.</p>
   <p><button>Mentés</button></p>
 </form>
+
+<section class="card" id="kod">
+  <h2>Kétlépcsős belépés</h2>
+  {% if enrolling %}
+    {% if enrolling.qr %}
+    <p>Olvasd be a kódot a hitelesítő alkalmazással (Google Authenticator, Microsoft Authenticator, Aegis, 1Password…), majd írd be az általa mutatott 6 jegyű kódot.</p>
+    <div class="qr">{{ enrolling.qr }}</div>
+    <p class="muted">Kézi megadáshoz: <code class="token">{{ enrolling.secret }}</code></p>
+    {% else %}
+    <p>A hitelesítő alkalmazásodban már van dwyt-bejegyzésed (az admin tartalékbelépéshez); írd be a kódját.</p>
+    {% endif %}
+    <form method="post" action="/beallitasok/kod/megerosites" class="filters">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <input name="code" inputmode="numeric" maxlength="7" autocomplete="one-time-code" placeholder="6 jegyű kód" required aria-label="Kód">
+      <button class="small">Bekapcsolás</button>
+    </form>
+  {% elif totp_on %}
+    <p>Bekapcsolva: a Google-belépés után a hitelesítő alkalmazás kódját is kéri.</p>
+    {% if not totp_required %}
+    <form method="post" action="/beallitasok/kod/kikapcsolas" class="filters">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <input name="code" inputmode="numeric" maxlength="7" autocomplete="one-time-code" placeholder="6 jegyű kód" required aria-label="Kód">
+      <button class="secondary small">Kikapcsolás</button>
+    </form>
+    {% else %}<p class="muted">Ezen a központon kötelező.</p>{% endif %}
+  {% else %}
+    <p class="muted">A Google-fiókod második faktora mellett egy saját kódot is kérhetsz belépéskor (hitelesítő alkalmazásból).{% if totp_required %} Ezen a központon kötelező: a következő belépéskor beállíttatja.{% endif %}</p>
+    <form method="post" action="/beallitasok/kod/bekapcsolas" class="inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="secondary small">Bekapcsolás</button>
+    </form>
+  {% endif %}
+</section>
 
 <section class="card" id="ertesites">
   <h2>Értesítések</h2>
@@ -83,11 +125,27 @@
   </form>
 </section>
 
+<section class="card" id="export">
+  <h2>Export</h2>
+  <p>A teljes könyvtárad egy ZIP-fájlban: elemenként a címkék, a jegyzet, az összefoglaló és a fő átirat (a beszélőnevekkel és a magyar fordítással).</p>
+  <p class="actions"><a class="button secondary small" href="/export?formatum=md">Markdown (elemenként egy fájl)</a> <a class="button secondary small" href="/export?formatum=json">JSON (egy fájl)</a></p>
+</section>
+
 <section class="card">
   <h2>Keretek</h2>
   <p>Tárhely (szöveg és keresési vektorok): <strong>{{ usage.used_mb|round(1) }} MB</strong> / {{ usage.quota_mb|round(0)|int }} MB</p>
   <progress max="{{ usage.quota_mb }}" value="{{ [usage.used_mb, usage.quota_mb]|min }}"></progress>
   <p>Feltöltés: fájlonként legfeljebb {{ usage.upload_mb }} MB; feldolgozásra vár {{ usage.pending }} / {{ usage.pending_max }}.</p>
   <p class="muted">Hang és videó nem tárolódik: a feltöltött fájl csak addig van a központon, amíg a futtatód átveszi. A keretet az admin módosíthatja.</p>
+</section>
+
+<section class="card" id="fiok">
+  <h2>Fiók törlése</h2>
+  <p>Törlődik a fiókod, a könyvtárad (elemek, átiratok, összefoglalók, fordítások, címkék, jegyzetek), a futtatóid, a csatornáid és a postaládád, az értesítési beállításaid és az MCP-tokenjeid. A YouTube-hozzáférést a Google-nél is visszavonjuk. Más felhasználóknál a tőled átvett eredmények megmaradnak, név nélkül. Előtte érdemes exportálni.</p>
+  <form method="post" action="/beallitasok/fiok-torlese" class="filters confirm" data-confirm="Biztosan törlöd a fiókodat? Ez nem vonható vissza.">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <input type="search" name="email" placeholder="a megerősítéshez írd be: {{ viewer.email }}" aria-label="E-mail-cím a megerősítéshez" autocomplete="off" required>
+    <button class="danger small">Fiók végleges törlése</button>
+  </form>
 </section>
 {% endblock %}

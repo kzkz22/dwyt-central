@@ -179,6 +179,21 @@ A Csatornák oldalon a felhasználó összekapcsolhatja a YouTube-fiókját; a k
 
 A hírcsatornákat (RSS) a központ óránként maga nézi meg, belépés és API-keret nélkül; ehhez a központnak el kell érnie a `www.youtube.com`-ot.
 
+### Meghívó e-mailben (nem kötelező)
+
+Ha van SMTP-szervered (például a levelezésszolgáltatód küldő szervere vagy egy alkalmazásjelszóval használt Gmail-fiók), a meghívók e-mailben mennek ki. A `central.env`-be:
+
+```
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_SECURITY=starttls
+SMTP_USER=a-te-cimed@gmail.com
+SMTP_PASSWORD=ALKALMAZASJELSZO
+SMTP_FROM=a-te-cimed@gmail.com
+```
+
+Utána `systemctl restart dwyt-central`. Az Admin oldal kiírja, hogy elment-e; a linket akkor is megmutatja, ha más úton is el akarod küldeni.
+
 ## 8. Apache, tanúsítvány, DNS
 
 1. DNS: `dwyt.iodate.date` A-rekordja a nyilvános IP-címedre mutasson (a pfSense a 80-as és a 443-as portot már az Apache-gépre továbbítja).

@@ -25,7 +25,7 @@ from typing import Any, Literal
 
 from sqlalchemy import func, select, update
 
-from . import db, jobs, library, ratelimit, search, security, sources
+from . import db, jobs, library, personal, ratelimit, search, security, sources
 from . import submit as submit_mod
 from .config import get_settings
 from .db import utcnow
@@ -195,6 +195,14 @@ def atirat(elem_id: int, nyelv: Literal["eredeti", "magyar", "mindketto"] = "ere
         for w in t.warnings or []:
             head.append(f"Figyelmeztetés: {w}")
         paragraphs = library.with_translation(library.turns(t.segments), hu)
+        names = personal.names_for(s, item.id, t.id)
+        for p in paragraphs:
+            p["speaker"] = personal.rename(p["speaker"], names)
+        tags = personal.tags_of(s, item.id)
+        if tags:
+            head.append("Címkék: " + ", ".join(tags))
+        if item.note:
+            head.append("Jegyzet: " + item.note[:2000])
     lines = ["\n".join(head), ""]
     size, shown, rest_from = len(lines[0]), 0, None
     for p in paragraphs:
@@ -238,14 +246,15 @@ def osszefoglalo(elem_id: int) -> str:
             return f"Ehhez az elemhez ({title}) nincs összefoglaló. Az átirat az `atirat` eszközzel olvasható."
         made = summary.created_at.date().isoformat() if summary.created_at else "?"
         return (f"# {title}\n(Összefoglaló, {summary.model_used or summary.model or summary.role}, {made})\n\n"
-                + summary.text)
+                + personal.rename_text(summary.text, personal.names_for(s, item.id, summary.transcript_id)))
 
 
-def legutobbiak(darab: int = 10, csatorna: str | None = None, csak_osszefoglaloval: bool = False) -> dict[str, Any]:
+def legutobbiak(darab: int = 10, csatorna: str | None = None, csak_osszefoglaloval: bool = False,
+                cimke: str | None = None) -> dict[str, Any]:
     """A könyvtárba legutóbb került elemek, a legújabb elöl.
 
     darab: 1–50. csatorna: a csatornanév része (kis- és nagybetű mindegy).
-    csak_osszefoglaloval: csak azok, amelyekhez már van összefoglaló."""
+    csak_osszefoglaloval: csak azok, amelyekhez már van összefoglaló. cimke: csak az ilyen címkéjűek."""
     from .models import Source
     caller = _caller()
     q = (select(Item, Transcript.language).join(Source, Source.id == Item.source_id)
@@ -256,12 +265,18 @@ def legutobbiak(darab: int = 10, csatorna: str | None = None, csak_osszefoglalov
         q = q.where(Source.meta["channel"].astext.ilike(like))
     if csak_osszefoglaloval:
         q = q.where(Item.current_summary_id.is_not(None))
+    if cimke and cimke.strip():
+        from .models import ItemTag
+        q = q.where(Item.id.in_(select(ItemTag.item_id).where(func.lower(ItemTag.tag) == cimke.strip().lower())))
     if not caller.include_private:
         q = q.where(Item.is_public.is_(True))
     with db.user_session(caller.user_id) as s:
         out = []
-        for item, language in s.execute(q).all():
+        rows = s.execute(q).all()
+        tags = personal.tags_by_item(s, [item.id for item, _language in rows])
+        for item, language in rows:
             entry = _entry(item, language)
+            entry["cimkek"] = tags.get(item.id, [])
             entry["hozzaadva"] = item.created_at.date().isoformat() if item.created_at else None
             entry["van_osszefoglalo"] = item.current_summary_id is not None
             out.append(entry)

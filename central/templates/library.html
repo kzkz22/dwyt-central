@@ -6,12 +6,16 @@
 <p class="warn-box">Még nincs futtatód. A munkákat a saját futtatód végzi el: <a href="/futtatok">futtató párosítása</a>.</p>
 {% endif %}
 <form method="get" action="/" class="filters">
-  <input type="search" name="q" value="{{ q }}" placeholder="Cím, csatorna vagy URL" aria-label="Szűrés címre, csatornára vagy URL-re">
+  <input type="search" name="q" value="{{ q }}" placeholder="Cím, csatorna, URL vagy jegyzet" aria-label="Szűrés címre, csatornára, URL-re vagy jegyzetre">
   <select name="szures" aria-label="Mely elemek">{% for key, label in filters.items() %}<option value="{{ key }}" {% if key == szures %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+  {% if cimke %}<input type="hidden" name="cimke" value="{{ cimke }}">{% endif %}
   <button class="secondary small">Szűrés</button>
-  {% if q or szures %}<a href="/">mind</a>{% endif %}
+  {% if q or szures or cimke %}<a href="/">mind</a>{% endif %}
   <span class="muted">{{ total }} elem · tartalomra a <a href="/kereses{% if q %}?q={{ q|urlencode }}{% endif %}">Keresés</a> oldalon keress</span>
 </form>
+{% if tag_list %}
+<p class="actions tags">{% for t, n in tag_list %}<a class="badge{% if cimke and t|lower == cimke|lower %} cloud{% endif %}" href="/?cimke={{ t|urlencode }}">{{ t }} ({{ n }})</a>{% endfor %}</p>
+{% endif %}
 {% if items %}
 <ul class="items">
 {% for item in items %}
@@ -27,18 +31,19 @@
         {% if item.id in active %}<span class="badge warn">folyamatban</span>{% endif %}
         {% if not item.is_public %}<span class="badge">saját</span>{% endif %}
       </div>
+      {% if item_tags.get(item.id) %}<div class="meta">{% for t in item_tags[item.id] %}<a class="badge" href="/?cimke={{ t|urlencode }}">{{ t }}</a> {% endfor %}</div>{% endif %}
       {% if previews.get(item.current_summary_id) %}<p class="preview">{{ previews[item.current_summary_id] }}</p>{% endif %}
     </div>
   </li>
 {% endfor %}
 </ul>
 {% if pages > 1 %}
-{% set extra = ('&q=' ~ (q|urlencode) if q else '') ~ ('&szures=' ~ szures if szures else '') %}
+{% set extra = ('&q=' ~ (q|urlencode) if q else '') ~ ('&szures=' ~ szures if szures else '') ~ ('&cimke=' ~ (cimke|urlencode) if cimke else '') %}
 <p class="actions">{% if page > 1 %}<a href="/?oldal={{ page - 1 }}{{ extra }}">Előző</a>{% endif %}
 <span class="muted">{{ page }}. oldal / {{ pages }}</span>
 {% if page < pages %}<a href="/?oldal={{ page + 1 }}{{ extra }}">Következő</a>{% endif %}</p>
 {% endif %}
-{% elif q or szures %}
+{% elif q or szures or cimke %}
 <p class="muted">Nincs a szűrésnek megfelelő elem.</p>
 {% else %}
 <p class="muted">A könyvtár még üres.</p>
