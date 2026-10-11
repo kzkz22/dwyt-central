@@ -1,5 +1,6 @@
 """Round 5: tags, note, speaker names, export, TOTP after Google, account deletion, invite e-mail."""
 import io
+import re
 import json
 import time
 import zipfile
@@ -37,7 +38,9 @@ def test_tags_and_note_filter_the_library(alice, bob, anon):
     assert {r[0] for r in rows("SELECT tag FROM item_tags")} == {"kert", "Tavasz", "ősz eleje"}
     assert post(alice, f"/elem/{garden}/jegyzet", {"note": "Megnézni a metszést is.\r\n"}).status_code == 303
     page = alice.get(f"/elem/{garden}").text
-    assert "Megnézni a metszést is." in page and 'value="kert, Tavasz, ősz eleje"' in page
+    assert "Megnézni a metszést is." in page
+    shown = re.search(r'name="tags" value="([^"]*)"', page).group(1)  # order follows the database's collation
+    assert sorted(shown.split(", ")) == ["Tavasz", "kert", "ősz eleje"]
     library = alice.get("/").text
     assert "kert (1)" in library and "Tavasz (1)" in library
     only = alice.get("/", params={"cimke": "TAVASZ"}).text
