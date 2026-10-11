@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import os
 import sys
 
 import segno
@@ -146,6 +147,15 @@ def check() -> None:
     print(f"regisztráció: {settings.registration}")
     if settings.base_url.startswith("https://") and not settings.cookie_secure:
         print("figyelem: HTTPS mellett COOKIE_SECURE=true legyen")
+    trusted = os.environ.get("FORWARDED_ALLOW_IPS", "").strip()
+    if not trusted or trusted == "APACHE-IP":
+        print("figyelem: FORWARDED_ALLOW_IPS nincs beállítva: a kliens címe az Apache címe lesz, így a "
+              "kéréskorlátok mindenkire együtt vonatkoznak")
+    elif "*" in trusted:
+        ok = False
+        print("HIBA: FORWARDED_ALLOW_IPS=* esetén bárki hamisíthatja a címét; az Apache-gép címét írd be")
+    else:
+        print(f"megbízható proxy (FORWARDED_ALLOW_IPS): {trusted}")
     sys.exit(0 if ok else 1)
 
 

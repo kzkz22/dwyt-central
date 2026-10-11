@@ -157,3 +157,31 @@ def test_cli_asks_before_using_the_address(monkeypatch):
     monkeypatch.setattr("builtins.input", lambda prompt: "n")
     with pytest.raises(SystemExit, match="Megszakítva"):
         cli.invite("carol@example.org")
+
+
+def test_login_page_shows_only_known_error_codes(anon):
+    page = anon.get("/belepes", params={"hiba": "Hívd a 555-1234-et a fiókodért!"}).text
+    assert "555-1234" not in page
+    assert "nincs beállítva" in anon.get("/belepes", params={"hiba": "google-nincs"}).text
+
+
+def test_unauthenticated_endpoints_are_rate_limited(anon):
+    from conftest import PROTO
+    for _ in range(10):
+        r = anon.post("/admin-belepes", data={"email": "x@example.com", "password": "rossz-jelszo-123"})
+        assert r.status_code == 401
+    r = anon.post("/admin-belepes", data={"email": "x@example.com", "password": "rossz-jelszo-123"})
+    assert r.status_code == 429 and "Túl sok" in r.text
+    for _ in range(10):
+        assert anon.post("/runner/v1/pair/start", headers=PROTO).status_code == 200
+    r = anon.post("/runner/v1/pair/start", headers=PROTO)
+    assert r.status_code == 429 and r.headers["retry-after"]
+
+
+def test_rate_limit_window_slides():
+    from central import ratelimit
+    for i in range(10):
+        assert ratelimit.hit("admin-login", "1.2.3.4", now=1000 + i) == 0
+    assert ratelimit.hit("admin-login", "1.2.3.4", now=1010) > 0
+    assert ratelimit.hit("admin-login", "5.6.7.8", now=1010) == 0     # another address
+    assert ratelimit.hit("admin-login", "1.2.3.4", now=1000 + 300) == 0  # the oldest left the window

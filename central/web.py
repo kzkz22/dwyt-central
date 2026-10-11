@@ -23,7 +23,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from starlette.concurrency import run_in_threadpool
 
-from . import accounts, db, jobs, library, protocol, security, sources
+from . import accounts, db, jobs, library, protocol, ratelimit, security, sources
 from .config import Settings, get_settings
 from .db import utcnow
 from .models import (ACTIVE, Invite, Item, ItemTranscript, Job, Runner, Session, Source, Summary,
@@ -188,6 +188,19 @@ def _message(request: Request, viewer: Viewer | None, title: str, message: str, 
                    back=back)
 
 
+def _limited(request: Request, name: str) -> Response | None:
+    wait = ratelimit.hit(name, _client_ip(request))
+    if not wait:
+        return None
+    log.warning("rate limit %s hit by %s", name, _client_ip(request))
+    return _message(request, None, "Túl sok próbálkozás", f"Túl sok kérés érkezett erről a címről; "
+                    f"próbáld újra {wait} másodperc múlva.", "/belepes", 429)
+
+
+# Sign-in errors are shown by code, never as text from the URL (no injected messages on our page).
+LOGIN_ERRORS = {"google-nincs": "A Google-belépés nincs beállítva (GOOGLE_CLIENT_ID)."}
+
+
 # ---- sign-in ------------------------------------------------------------------------------
 
 @app.get("/healthz")
@@ -198,11 +211,13 @@ def healthz():
 @app.get("/belepes", response_class=HTMLResponse)
 def login_page(request: Request, hiba: str = ""):
     settings = get_settings()
-    return _render(request, "login.html", error=hiba[:300], google=bool(settings.google_client_id))
+    return _render(request, "login.html", error=LOGIN_ERRORS.get(hiba, ""), google=bool(settings.google_client_id))
 
 
 @app.get("/meghivo/{token}", response_class=HTMLResponse)
 def invite_page(request: Request, token: str):
+    if (limited := _limited(request, "invite")) is not None:
+        return limited
     with db.system_session() as s:
         invite = accounts.invite_by_token(s, token)
         email = invite.email if invite else None
@@ -216,13 +231,17 @@ LOGIN_COOKIE = "dwyt_signin"
 
 
 @app.get("/auth/google/start")
-def google_start(meghivo: str = ""):
+def google_start(request: Request, meghivo: str = ""):
     settings = get_settings()
+    if (limited := _limited(request, "google-start")) is not None:
+        return limited
+    if not settings.google_client_id:
+        return _redirect("/belepes?hiba=google-nincs")
     try:
         with db.system_session() as s:
             url, state = accounts.start(s, settings, meghivo[:100] or None)
-    except accounts.SignInError as exc:
-        return _redirect(f"/belepes?hiba={exc}")
+    except accounts.SignInError:
+        return _redirect("/belepes?hiba=google-nincs")
     response = RedirectResponse(url, status_code=302)
     # binds the sign-in to this browser: a callback link made in another browser is refused
     response.set_cookie(LOGIN_COOKIE, state, max_age=accounts.STATE_MINUTES * 60, httponly=True, samesite="lax",
@@ -270,6 +289,8 @@ def admin_login_page(request: Request):
 
 @app.post("/admin-belepes")
 async def admin_login(request: Request):
+    if (limited := _limited(request, "admin-login")) is not None:
+        return limited
     form = await request.form()
     email, password = str(form.get("email", ""))[:200], str(form.get("password", ""))[:500]
     settings = get_settings()
@@ -284,6 +305,7 @@ async def admin_login(request: Request):
             if not security.check_password(user, password):
                 if user is not None:
                     security.record_failure(user)
+                log.warning("admin password login failed from %s", _client_ip(request))
                 return None, "Hibás e-mail-cím vagy jelszó."
             return security.start_session(s, user, "pending", settings.session_days, _client_ip(request),
                                           request.headers.get("user-agent")), None
@@ -315,6 +337,8 @@ def admin_code_page(request: Request):
 
 @app.post("/admin-belepes/kod")
 async def admin_code(request: Request):
+    if (limited := _limited(request, "admin-login")) is not None:
+        return limited
     form = await request.form()
     settings = get_settings()
     old_token = request.cookies.get(security.COOKIE)
@@ -331,6 +355,7 @@ async def admin_code(request: Request):
                 return None, f"Túl sok hibás próbálkozás; várj {security.lock_seconds_left(user)} másodpercet."
             if not security.check_totp(user, str(form.get("code", ""))):
                 security.record_failure(user)
+                log.warning("admin code login failed from %s", _client_ip(request))
                 return None, "Hibás kód."
             security.record_success(user)
             security.end_session(s, old_token)

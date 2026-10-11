@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field, StringConstraints, ValidationError, field
 from sqlalchemy import select
 from starlette.concurrency import run_in_threadpool
 
-from . import db, jobs
+from . import db, jobs, ratelimit
 from .config import get_settings
 from .db import utcnow
 from .models import Job, PairRequest, Runner, User
@@ -90,8 +90,12 @@ def normalise_code(code: str) -> str:
 
 
 @router.post("/pair/start")
-async def pair_start(_v: int = Depends(check_version)):
+async def pair_start(request: Request, _v: int = Depends(check_version)):
     settings = get_settings()
+    wait = ratelimit.hit("pair-start", request.client.host if request.client else None)
+    if wait:
+        return JSONResponse({"error": f"Túl sok párosítás erről a címről; próbáld újra {wait} másodperc múlva."},
+                            status_code=429, headers={"Retry-After": str(wait)})
 
     def create() -> dict | None:
         poll = new_token()

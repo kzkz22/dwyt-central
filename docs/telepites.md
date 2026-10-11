@@ -148,7 +148,35 @@ certbot --apache -d dwyt.iodate.date                   # vagy: certbot certonly 
 a2ensite dwyt && apache2ctl configtest && systemctl reload apache2
 ```
 
-A mintában van egy `Require ip` blokk: amíg ott van, a felület csak a belső hálózatról és a VPN-ről érhető el. Az átnézés után ezt kell törölni, hogy a meghívottak kívülről is elérjék.
+A minta nyilvános elérést ír le. Ha átmenetileg csak a belső hálózatot és a VPN-t akarod engedni, vedd ki a megjegyzésből a végén lévő `Require ip` blokkot, de valódi címtartományokkal. Ha helyőrző marad benne (például `VPN-SUBNET`), az Apache az egész beállítást elutasítja.
+
+### Védelem a nyilvános eléréshez
+
+**Tűzfal a központ előtt.** A 8000-es portot csak az Apache-gép érje el, hogy senki ne kerülhesse meg az Apache-ot. A Proxmox felületén:
+
+1. **CT 150 → Firewall → Options:** Firewall: Yes, Input Policy: DROP.
+2. **CT 150 → Firewall → Add**, két szabály:
+   - IN, ACCEPT, Protocol tcp, Dest. port 8000, Source `APACHE-IP`;
+   - IN, ACCEPT, Protocol tcp, Dest. port 22, Source `192.168.1.0/24`.
+3. A konténer hálókártyáján (**Network → net0 → Edit**) legyen bepipálva a **Firewall**.
+4. A **Datacenter → Firewall → Options** alatt is legyen bekapcsolva.
+
+Ellenőrzés egy másik belső gépről: `curl -m 5 http://DWYT-IP:8000/healthz` → időtúllépés. Az Apache-gépről ugyanez → `{"ok":true}`.
+
+**A valódi kliens-cím.** A `central.env`-ben a `FORWARDED_ALLOW_IPS` az Apache-gép címe legyen, `*` soha. A kéréskorlátok (admin-belépés, Google-belépés indítása, meghívólink, futtató-párosítás) erre a címre vonatkoznak. A `dwyt-central-cli check` szól, ha nincs beállítva.
+
+**fail2ban az Apache-gépen (ajánlott).** A hibás admin-belépés `401`-et, a kéréskorlát `429`-et ad. A fail2ban ezekből tiltja ki a próbálkozó címet a tűzfalon.
+
+```bash
+# Apache-gépen
+apt install -y fail2ban
+cp deploy/fail2ban/filter-dwyt.conf /etc/fail2ban/filter.d/dwyt.conf
+cp deploy/fail2ban/jail-dwyt.conf  /etc/fail2ban/jail.d/dwyt.conf     # az ignoreip-ben a saját hálózatod
+systemctl restart fail2ban
+fail2ban-client status dwyt
+```
+
+A `dwyt.conf` vhost ehhez saját naplót ír: `/var/log/apache2/dwyt-access.log`. Ha a vhostot korábban a régi minta alapján írtad, add hozzá az `ErrorLog` és a `CustomLog` sort, és töltsd újra az Apache-ot.
 
 Ellenőrzés: `curl -sI https://dwyt.iodate.date/healthz` → `200`, és a válaszban ott a `Strict-Transport-Security` fejléc.
 
@@ -169,4 +197,6 @@ Ellenőrzés: `curl -sI https://dwyt.iodate.date/healthz` → `200`, és a vála
 | Google-belépéskor `redirect_uri_mismatch` | A 7. lépés redirect URI-ja betűre egyezzen a `BASE_URL` + `/auth/google/callback` címmel (https, perjel nélkül a végén). |
 | „Ide csak meghívással lehet regisztrálni” | A meghívó linkjét kell először megnyitni, és onnan belépni; vagy a `REGISTRATION` értéke `open`. |
 | Belépés után visszadob a belépő oldalra | HTTP-n `COOKIE_SECURE=true` mellett a böngésző nem küldi a sütit; az Apache-on át (HTTPS) próbáld, vagy belső próbához átmenetileg `false`. |
-| A futtatók oldalán „nem jelentkezik” | A futtató gépén `dwyt-runner check`; a futtatónak el kell érnie a `BASE_URL`-t. Az Apache `Require ip` blokkja a kívülről jövő futtatót is kizárja. |
+| A futtatók oldalán „nem jelentkezik” | A futtató gépén `dwyt-runner check`; a futtatónak el kell érnie a `BASE_URL`-t. Egy `Require ip` blokk a kívülről jövő futtatót is kizárja. |
+| „Túl sok próbálkozás” mindenkinek egyszerre | A `FORWARDED_ALLOW_IPS` hiányzik vagy rossz: minden kérés az Apache címéről jön, és a korlát közös. |
+| Az Apache `configtest` hibát ad a `Require ip` sorra | Helyőrző maradt benne (például `VPN-SUBNET`); valódi tartományt írj be, vagy töröld a blokkot. |

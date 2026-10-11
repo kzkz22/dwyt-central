@@ -93,6 +93,8 @@ def clean(configured, fake_google, monkeypatch):
         conn.execute(text(f"TRUNCATE {TABLES} RESTART IDENTITY CASCADE"))
     fake_google.reset()
     web._pair_failures.clear()
+    from central import ratelimit
+    ratelimit.reset()
     yield
     get_settings.cache_clear()
 
