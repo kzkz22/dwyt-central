@@ -1053,13 +1053,10 @@ async def channel_takeout(request: Request, viewer: Viewer = Depends(authed_post
 
 @app.post("/csatornak/ellenorzes")
 async def channels_poll_now(request: Request, viewer: Viewer = Depends(authed_post)):
-    def run() -> int:
-        with db.user_session(viewer.id) as s:
-            ids = s.scalars(select(Subscription.channel_id).where(Subscription.active.is_(True),
-                                                                  Subscription.rule != "never").limit(100)).all()
-        return sum(subscriptions.poll_channel(get_settings(), cid) for cid in ids)
-    new = await run_in_threadpool(run)
-    return _channels_message(request, viewer, f"Ellenőrizve; {new} új videó a hírcsatornákban.")
+    """Many channels take minutes (a request per feed): the background thread does it, the page answers at once."""
+    count = await run_in_threadpool(subscriptions.poll_soon, viewer.id)
+    return _channels_message(request, viewer, f"{count} csatorna ellenőrzése elindult a háttérben; sok csatornánál "
+                             "pár percig tart. Az új videók a Postaládában jelennek meg.")
 
 
 @app.post("/csatornak/{sub_id}/beallitas")

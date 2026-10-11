@@ -253,3 +253,17 @@ def test_the_app_role_cannot_read_youtube_tokens(alice, fake_google):
     with pytest.raises(Exception, match="permission denied"):
         with db.user_session(1) as s:
             s.execute(text("SELECT * FROM youtube_links")).all()
+
+
+def test_check_now_runs_in_the_background_and_old_videos_need_no_shorts_check(alice, emails, fake_youtube):
+    fake_youtube.feeds[GARDEN] = [("vid-new-001", "Új", iso(-1)), ("vid-old-001", "Régi", iso(-100))]
+    follow(alice, GARDEN)
+    poll()
+    assert rows("SELECT video_id, is_short FROM channel_videos ORDER BY video_id") == \
+        [("vid-new-001", False), ("vid-old-001", None)]  # the old one: before the subscription, never asked
+    calls = len(fake_youtube.feed_calls)
+    r = post(alice, "/csatornak/ellenorzes")
+    assert r.status_code == 200 and "1 csatorna ellenőrzése elindult a háttérben" in r.text
+    assert len(fake_youtube.feed_calls) == calls  # the page did not wait for it
+    poll()
+    assert len(fake_youtube.feed_calls) == calls + 1  # the background round picked it up at once

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from concurrent.futures import ThreadPoolExecutor
 import time
 from datetime import datetime, timedelta
 from typing import Any
@@ -175,7 +176,10 @@ def sync_due(settings: Settings) -> None:
 
 # ---- polling and fan-out ------------------------------------------------------------------
 
-def poll_due(settings: Settings, limit: int = 30) -> int:
+POLL_BATCH = 30  # channels per background round (every TICK_S)
+
+
+def poll_due(settings: Settings, limit: int = POLL_BATCH) -> int:
     """Check the feeds of followed channels not checked for FEED_POLL_MIN; returns new videos."""
     before = utcnow() - timedelta(minutes=settings.feed_poll_min)
     with db.system_session() as s:
@@ -186,16 +190,30 @@ def poll_due(settings: Settings, limit: int = 30) -> int:
     return sum(poll_channel(settings, cid) for cid in ids)
 
 
+def poll_soon(user_id: int) -> int:
+    """Have the background thread check this user's followed channels at its next rounds."""
+    with db.user_session(user_id) as s:
+        ids = list(s.scalars(select(Subscription.channel_id).where(Subscription.active.is_(True),
+                                                                   Subscription.rule != "never")))
+    with db.system_session() as s:
+        s.execute(update(Channel).where(Channel.id.in_(ids)).values(last_checked_at=None))
+    return len(ids)
+
+
 def poll_channel(settings: Settings, channel_id: str) -> int:
     try:
         videos, error = youtube.feed(settings, channel_id), None
     except youtube.YoutubeError as exc:
         videos, error = [], str(exc)
-    new: list[str] = []
+    new: list[str] = []  # newly seen videos that need the Shorts check
+    seen = 0
     with db.system_session() as s:
         ch = s.get(Channel, channel_id)
         if ch is None:
             return 0
+        # only videos a follower could get in his inbox need the Shorts check (not the old ones of a new channel)
+        oldest = s.scalar(select(func.min(Subscription.baseline_at)).where(
+            Subscription.channel_id == channel_id, Subscription.active.is_(True), Subscription.rule != "never"))
         ch.last_checked_at, ch.last_error = utcnow(), error
         if videos and videos[0].channel_title:
             ch.title = videos[0].channel_title[:300]
@@ -204,16 +222,18 @@ def poll_channel(settings: Settings, channel_id: str) -> int:
                                                         published_at=v.published_at)
                             .on_conflict_do_nothing(index_elements=[ChannelVideo.video_id])
                             .returning(ChannelVideo.video_id)).scalar()
-            if got:
+            seen += 1 if got else 0
+            if got and (oldest is None or v.published_at is None or v.published_at > oldest):
                 new.append(got)
-    # the Shorts check is a web request per video: outside the transaction, once per video
-    shorts = {vid: youtube.is_short(settings, vid) for vid in new}
+    # the Shorts check is a web request per video: outside the transaction, once per video, a few at a time
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        shorts = dict(zip(new, pool.map(lambda vid: youtube.is_short(settings, vid), new)))
     with db.system_session() as s:
         for vid, short in shorts.items():
             if short is not None:
                 s.execute(update(ChannelVideo).where(ChannelVideo.video_id == vid).values(is_short=short))
     fan_out(settings, channel_id)
-    return len(new)
+    return seen
 
 
 def fan_out(settings: Settings, channel_id: str) -> None:
