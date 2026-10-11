@@ -167,14 +167,20 @@ Ellenőrzés egy másik belső gépről: `curl -m 5 http://DWYT-IP:8000/healthz`
 
 **fail2ban az Apache-gépen (ajánlott).** A hibás admin-belépés `401`-et, a kéréskorlát `429`-et ad. A fail2ban ezekből tiltja ki a próbálkozó címet a tűzfalon.
 
+Az Apache-gépen kell futnia (nem a központ LXC-jében), mert az Apache naplóját olvassa, és ott tilt.
+
 ```bash
 # Apache-gépen
-apt install -y fail2ban
-cp deploy/fail2ban/filter-dwyt.conf /etc/fail2ban/filter.d/dwyt.conf
-cp deploy/fail2ban/jail-dwyt.conf  /etc/fail2ban/jail.d/dwyt.conf     # az ignoreip-ben a saját hálózatod
+apt install -y fail2ban python3-systemd
+R=https://raw.githubusercontent.com/kzkz22/dwyt-central/main/deploy/fail2ban
+curl -sSfL -o /etc/fail2ban/filter.d/dwyt.conf $R/filter-dwyt.conf
+curl -sSfL -o /etc/fail2ban/jail.d/dwyt.conf  $R/jail-dwyt.conf      # az ignoreip-ben a saját hálózatod
+ls -l /var/log/apache2/dwyt-access.log        # léteznie kell (CustomLog a vhostban, majd reload)
 systemctl restart fail2ban
 fail2ban-client status dwyt
 ```
+
+Debian 12-n a fail2ban magától bekapcsolt `sshd` szabálya a `/var/log/auth.log` fájlt keresi, ami ott nincs, és emiatt az egész fail2ban el sem indul. Megoldás: `printf '[sshd]\nbackend = systemd\n' > /etc/fail2ban/jail.d/sshd-systemd.conf`. Ha nem indul, az ok a `journalctl -u fail2ban -n 30` kimenetében látszik.
 
 A `dwyt.conf` vhost ehhez saját naplót ír: `/var/log/apache2/dwyt-access.log`. Ha a vhostot korábban a régi minta alapján írtad, add hozzá az `ErrorLog` és a `CustomLog` sort, és töltsd újra az Apache-ot.
 
