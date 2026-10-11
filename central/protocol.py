@@ -171,6 +171,9 @@ class Capabilities(BaseModel):
     whisper_models: list[Annotated[str, StringConstraints(max_length=40)]] = Field(default_factory=list, max_length=20)
     # where the media may come from besides URLs: upload (staged here), local (the runner's watched folder)
     source_kinds: list[Short] = Field(default_factory=list, max_length=20)
+    # models the user may choose per role (public / private) for summaries and translations
+    llm_models: dict[Short, Annotated[list[Annotated[str, StringConstraints(max_length=100)]],
+                                      Field(max_length=30)]] = Field(default_factory=dict, max_length=5)
 
 
 class ClaimBody(BaseModel):

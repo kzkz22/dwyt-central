@@ -265,6 +265,28 @@ def housekeeping() -> None:
             SELECT 1 FROM items i WHERE i.current_summary_id = c.summary_id)"""))
         s.execute(text("""DELETE FROM chunks c WHERE c.kind = 'meta' AND NOT EXISTS (
             SELECT 1 FROM items i WHERE i.source_id = c.source_id AND (c.item_id IS NULL OR c.item_id = i.id))"""))
+    drop_unreferenced_results()
+
+
+def drop_unreferenced_results(min_age: str = "1 hour") -> None:
+    """Shared results nobody links to any more (deleted items or transcripts) are removed (plan 7).
+    Young rows and transcripts a queued summary/translation still needs are kept."""
+    with db.system_session() as s:
+        age = {"age": min_age}
+        s.execute(text("""DELETE FROM summaries x WHERE x.created_at < now() - CAST(:age AS interval)
+            AND NOT EXISTS (SELECT 1 FROM item_summaries l WHERE l.summary_id = x.id)
+            AND NOT EXISTS (SELECT 1 FROM items i WHERE i.current_summary_id = x.id)"""), age)
+        s.execute(text("""DELETE FROM translations x WHERE x.created_at < now() - CAST(:age AS interval)
+            AND NOT EXISTS (SELECT 1 FROM item_translations l WHERE l.translation_id = x.id)
+            AND NOT EXISTS (SELECT 1 FROM items i WHERE i.current_translation_id = x.id)"""), age)
+        s.execute(text("""DELETE FROM transcripts x WHERE x.created_at < now() - CAST(:age AS interval)
+            AND NOT EXISTS (SELECT 1 FROM item_transcripts l WHERE l.transcript_id = x.id)
+            AND NOT EXISTS (SELECT 1 FROM items i WHERE i.main_transcript_id = x.id)
+            AND NOT EXISTS (SELECT 1 FROM summaries y WHERE y.transcript_id = x.id)
+            AND NOT EXISTS (SELECT 1 FROM translations y WHERE y.transcript_id = x.id)
+            AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.state IN ('queued', 'running')
+                            AND j.kind IN ('summarize', 'translate')
+                            AND j.payload->>'transcript_id' = x.id::text)"""), age)
 
 
 def status(user_id: int) -> dict:

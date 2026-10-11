@@ -8,15 +8,18 @@ A **dwyt** központja: webes felület, belépés (Google + meghívás), felhaszn
 
 ## Állapot
 
-Az 1. kör kész:
+Az 1–3. kör kész (a 3c résszel együtt):
 
 - belépés Google-lel, meghívással (vagy telepítéskor választva nyitottan); admin tartalékbelépés jelszóval és TOTP-vel;
 - felhasználónként külön könyvtár; a szétválasztást az adatbázis sorvédelme (row-level security) is őrzi;
-- futtatók párosítása kóddal, munkakiosztás a futtató képességei és engedélyezett tartományai szerint, lízing és szívverés, megszakítás, újrapróbálás;
-- beküldés YouTube-felirat vagy felhős átírás módban, magyar összefoglalóval;
-- könyvtár, elemoldal (átiratok, összefoglaló, időbélyeg-linkek), munkák, futtatók, admin (meghívók, felhasználók letiltása).
+- futtatók párosítása kóddal, munkakiosztás a futtató képességei szerint, lízing és szívverés, megszakítás, újrapróbálás;
+- átírás YouTube-felirattal, felhőben (AssemblyAI) vagy saját GPU-n (Whisper); saját felvétel böngészős feltöltéssel vagy a futtató figyelt mappájából;
+- magyar összefoglaló és fordítás (a futtató modelljével, a saját felvételek csak a helyi modellel); keresés szövegre és jelentésre;
+- kész eredmények átvétele (ha valaki már átíratta ugyanazt), kvóták;
+- elemoldal: összefoglaló-változatok (választható aktuális, Markdown-letöltés), több átirat (fő átirat választása, törlés, újraírás más beállítással), letöltés TXT-ben és SRT-ben eredetiben és magyarul, választható modell, a hosszú munkák haladása;
+- könyvtár szűréssel és összefoglaló-előnézettel; a hiányzó összefoglalók, fordítások és az index pótlása egy gombbal.
 
-Következik a 2. kör: saját GPU (dwyt-airouter, dwyt-gpu), helyi Whisper.
+Következik a 4. kör: YouTube-feliratkozások és postaláda, értesítés (ntfy, Home Assistant), MCP.
 
 ## Fejlesztés
 

@@ -1,0 +1,21 @@
+{% macro job_line(job, now) -%}
+{%- set kind = kind_labels.get(job.kind, job.kind) %}{{ kind }}
+{%- if job.state == 'running' %} folyamatban{% if stage_label(job.stage) and stage_label(job.stage) != kind %} – {{ stage_label(job.stage) }}{% endif %}
+  {%- if job.progress.parts %} ({{ job.progress.part }}/{{ job.progress.parts }}. {{ 'rész' if job.kind == 'translate' else 'lépés' }}){% endif %}
+  {%- if job.progress.model %} · {{ job.progress.model }}{% endif %}
+{%- elif job.state == 'queued' and job.attempts and job.run_after > now %}: vár, következő próba {{ job.run_after|local("%H:%M") }}{% if job.error %} ({{ job.error }}){% endif %}
+{%- else %}: sorban áll{% endif %}
+{%- if job.cancel_requested %} (megszakítás kérve){% endif %}
+{%- endmacro %}
+
+{% macro model_select(model_choices, item) -%}
+{% if model_choices %}
+<label>Modell
+  <select name="model">
+    <option value="">A futtató alapértelmezése</option>
+    {% for name in model_choices %}<option value="{{ name }}">{{ name }}</option>{% endfor %}
+  </select>
+</label>
+{% if not item.is_public %}<p class="muted">Saját felvétel: csak azok a modellek választhatók, amelyeket a futtatódon saját felvételhez engedélyeztél (<code>llm_private_models</code>).</p>{% endif %}
+{% endif %}
+{%- endmacro %}

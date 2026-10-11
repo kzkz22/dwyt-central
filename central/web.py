@@ -16,17 +16,19 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from starlette.concurrency import run_in_threadpool
 
-from . import accounts, db, indexing, jobs, library, ownfiles, protocol, ratelimit, reuse, search, security, sources
+from . import (accounts, db, indexing, items, jobs, library, ownfiles, protocol, ratelimit, render, reuse, search,
+               security, sources)
 from .config import Settings, get_settings
 from .db import utcnow
 from .models import (ACTIVE, Invite, Item, ItemSummary, ItemTranscript, ItemTranslation, Job, Runner, Session,
@@ -424,9 +426,7 @@ async def logout(request: Request, viewer: Viewer = Depends(authed_post)):
 
 # ---- library ------------------------------------------------------------------------------
 
-def _title(item: Item) -> str:
-    meta = item.source.meta or {}
-    return item.title or meta.get("title") or item.source.url or item.source.key
+_title = library.item_title
 
 
 def _thumb(source: Source) -> str | None:
@@ -437,23 +437,68 @@ def _thumb(source: Source) -> str | None:
 
 templates.env.globals.update(item_title=_title, thumb=_thumb)
 
+LIBRARY_FILTERS = {"": "Minden elem", "nyilvanos": "Videók, weboldalak", "sajat": "Saját felvételek",
+                   "nincs-osszefoglalo": "Összefoglaló nélkül", "folyamatban": "Folyamatban"}
+
+
+def _like(q: str) -> str:
+    return "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+
 
 @app.get("/", response_class=HTMLResponse)
-def library_page(request: Request, oldal: int = 1, viewer: Viewer = Depends(current_viewer)):
-    page = max(1, oldal)
+def library_page(request: Request, oldal: int = 1, q: str = "", szures: str = "",
+                 viewer: Viewer = Depends(current_viewer)):
+    q = q.strip()[:200]
+    szures = szures if szures in LIBRARY_FILTERS else ""
     with db.user_session(viewer.id) as s:
-        total = s.scalar(select(func.count()).select_from(Item)) or 0
-        items = s.scalars(select(Item).order_by(Item.created_at.desc(), Item.id.desc())
-                          .offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE)).all()
         active = set(s.scalars(select(Job.item_id).where(Job.state.in_(ACTIVE))).all())
+        query = select(Item).join(Source, Source.id == Item.source_id)
+        if q:
+            like = _like(q)
+            query = query.where(or_(Item.title.ilike(like), Source.meta["title"].astext.ilike(like),
+                                    Source.meta["channel"].astext.ilike(like), Source.url.ilike(like)))
+        if szures == "nyilvanos":
+            query = query.where(Item.is_public.is_(True))
+        elif szures == "sajat":
+            query = query.where(Item.is_public.is_(False))
+        elif szures == "nincs-osszefoglalo":
+            query = query.where(Item.current_summary_id.is_(None))
+        elif szures == "folyamatban":
+            query = query.where(Item.id.in_(active or {0}))
+        total = s.scalar(select(func.count()).select_from(query.subquery())) or 0
+        pages = max(1, -(-total // PAGE_SIZE))
+        page = min(max(1, oldal), pages)
+        found = s.scalars(query.order_by(Item.created_at.desc(), Item.id.desc())
+                          .offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE)).all()
+        mains = {t.id: t for t in s.scalars(select(Transcript).where(
+            Transcript.id.in_([i.main_transcript_id for i in found if i.main_transcript_id])))}
+        previews = {sm.id: render.plain_preview(sm.text) for sm in s.scalars(select(Summary).where(
+            Summary.id.in_([i.current_summary_id for i in found if i.current_summary_id])))}
         has_runner = s.scalar(select(func.count()).select_from(Runner).where(Runner.revoked_at.is_(None))) or 0
-    return _render(request, "library.html", viewer, items=items, active=active, page=page,
-                   pages=max(1, -(-total // PAGE_SIZE)), total=total, has_runner=has_runner)
+    return _render(request, "library.html", viewer, items=found, active=active, page=page, pages=pages, total=total,
+                   has_runner=has_runner, q=q, szures=szures, filters=LIBRARY_FILTERS, mains=mains,
+                   previews=previews)
+
+
+def _runners(s) -> list[Runner]:
+    return list(s.scalars(select(Runner).where(Runner.revoked_at.is_(None)).order_by(Runner.id)))
+
+
+def _model_choices(runners: list[Runner], item: Item) -> list[str]:
+    return jobs.offered_models(runners, "public" if item.is_public else "private")
+
+
+def _status_context(s, item: Item) -> dict[str, Any]:
+    item_jobs = s.scalars(select(Job).where(Job.item_id == item.id).order_by(Job.id.desc()).limit(10)).all()
+    active_jobs = [j for j in reversed(item_jobs) if j.state in ACTIVE]
+    failed = next((j for j in item_jobs if j.state in ("failed", "done", "cancelled")), None)
+    return {"active_jobs": active_jobs, "last_failed": failed if failed is not None and failed.state == "failed"
+            else None, "now": utcnow()}
 
 
 @app.get("/elem/{item_id}", response_class=HTMLResponse)
 def item_page(request: Request, item_id: int, atirat: int | None = None, nezet: str = "",
-              viewer: Viewer = Depends(current_viewer)):
+              osszefoglalo: int | None = None, viewer: Viewer = Depends(current_viewer)):
     with db.user_session(viewer.id) as s:
         item = s.get(Item, item_id)
         if item is None:
@@ -463,33 +508,66 @@ def item_page(request: Request, item_id: int, atirat: int | None = None, nezet: 
         chosen = next((t for t in transcripts if t.id == (atirat or item.main_transcript_id)), None)
         if chosen is None and transcripts:
             chosen = transcripts[-1]
-        summary = s.get(Summary, item.current_summary_id) if item.current_summary_id else None
-        item_jobs = s.scalars(select(Job).where(Job.item_id == item.id).order_by(Job.id.desc()).limit(10)).all()
+        main = next((t for t in transcripts if t.id == item.main_transcript_id), None)
+        versions = items.summary_versions(s, item.id)
+        summary, summary_reused = next(((v, r) for v, r in versions if v.id == osszefoglalo), (None, False))
+        if summary is None:
+            summary, summary_reused = next(((v, r) for v, r in versions if v.id == item.current_summary_id),
+                                           (None, False))
         translation = None
         if chosen is not None:
-            translation = s.scalar(select(Translation).join(ItemTranslation,
-                                                            ItemTranslation.translation_id == Translation.id)
-                                   .where(ItemTranslation.item_id == item.id, Translation.transcript_id == chosen.id)
-                                   .order_by(Translation.id.desc()))
+            translation = s.get(Translation, items.latest_translation(s, item.id, chosen.id) or 0)
+            if chosen.id == item.main_transcript_id and item.current_translation_id:
+                translation = s.get(Translation, item.current_translation_id) or translation
         hu = {g.idx: g.text for g in translation.segments} if translation else None
         paragraphs = library.with_translation(library.turns(chosen.segments), hu) if chosen else []
+        main_paragraphs = paragraphs if main is chosen else (library.turns(main.segments) if main else [])
         links = {p["start"]: library.timestamp_url(item.source, p["start"]) for p in paragraphs}
         reused = {
             "transcript": {t for t, r in s.execute(select(ItemTranscript.transcript_id, ItemTranscript.reused)
                                                    .where(ItemTranscript.item_id == item.id)) if r},
-            "summary": bool(summary and s.scalar(select(ItemSummary.reused).where(
-                ItemSummary.item_id == item.id, ItemSummary.summary_id == summary.id))),
             "translation": bool(translation and s.scalar(select(ItemTranslation.reused).where(
                 ItemTranslation.item_id == item.id, ItemTranslation.translation_id == translation.id))),
         }
-        translating = any(j.kind == "translate" and j.state in ACTIVE for j in item_jobs)
+        status = _status_context(s, item)
+        runners = _runners(s)
+        can_rerun = item.source.kind != "upload" or _own_file_of(s, item) is not None
+    summary_html = None
+    if summary is not None:
+        starts = sorted(p["start"] for p in main_paragraphs)
+
+        def link(seconds: int) -> tuple[str, bool]:
+            url = library.timestamp_url(item.source, seconds)
+            if url:
+                return url, True
+            anchor = max((st for st in starts if st <= seconds + 0.5), default=starts[0] if starts else 0)
+            return f"/elem/{item.id}#t{int(anchor)}", False
+        summary_html = render.summary_html(summary.text, link)
+    translating = any(j.kind == "translate" for j in status["active_jobs"])
+    summarizing = any(j.kind == "summarize" for j in status["active_jobs"])
     view = nezet if nezet in ("eredeti", "magyar", "mindketto") else ("mindketto" if translation else "eredeti")
     if not translation:
         view = "eredeti"
     return _render(request, "item.html", viewer, item=item, transcripts=transcripts, transcript=chosen,
-                   paragraphs=paragraphs, links=links, summary=summary, item_jobs=item_jobs, translation=translation,
-                   view=view, reused=reused, translating=translating,
-                   can_translate=bool(chosen and jobs.needs_translation(chosen.language)))
+                   paragraphs=paragraphs, links=links, summary=summary, summary_html=summary_html,
+                   summary_reused=summary_reused, summary_versions=versions, translation=translation,
+                   view=view, reused=reused, translating=translating, summarizing=summarizing,
+                   model_choices=_model_choices(runners, item), modes=MODES, cloud_models=CLOUD_MODELS,
+                   local_models=LOCAL_MODELS, can_rerun=can_rerun,
+                   can_translate=bool(chosen and jobs.needs_translation(chosen.language)), **status)
+
+
+@app.get("/elem/{item_id}/allapot", response_class=HTMLResponse)
+def item_status(request: Request, item_id: int, viewer: Viewer = Depends(current_viewer)):
+    """Polled while the item has active jobs: the notice again, or a page refresh once they are done."""
+    with db.user_session(viewer.id) as s:
+        item = s.get(Item, item_id)
+        if item is None:
+            return PlainTextResponse("", status_code=404)
+        status = _status_context(s, item)
+    if not status["active_jobs"]:
+        return Response(status_code=200, headers={"HX-Refresh": "true"})
+    return _render(request, "_item_status.html", viewer, item=item, **status)
 
 
 @app.post("/elem/{item_id}/torles")
@@ -503,23 +581,127 @@ async def delete_item(item_id: int, viewer: Viewer = Depends(authed_post)):
     return _redirect("/")
 
 
+def _chosen_model(form, runners: list[Runner], item: Item) -> tuple[str | None, str | None]:
+    """(model or None for the runner's default, error)."""
+    model = str(form.get("model") or "").strip()
+    if not model:
+        return None, None
+    if model not in _model_choices(runners, item):
+        return None, "Ezt a modellt egyik futtatód sem ajánlja fel ehhez az elemhez."
+    return model, None
+
+
 @app.post("/elem/{item_id}/osszefoglalo")
 async def resummarize(request: Request, item_id: int, viewer: Viewer = Depends(authed_post)):
+    form = await request.form()
+
     def enqueue() -> str | None:
         with db.user_session(viewer.id) as s:
             item = s.get(Item, item_id)
             if item is None or item.main_transcript_id is None:
                 return "Ehhez az elemhez még nincs átirat."
+            model, problem = _chosen_model(form, _runners(s), item)
+            if problem:
+                return problem
             busy = s.scalar(select(Job.id).where(Job.item_id == item.id, Job.kind == "summarize",
                                                  Job.state.in_(ACTIVE)))
             if busy:
                 return "Az összefoglaló már készül."
-            jobs.enqueue_summary(s, viewer.id, item, item.main_transcript_id, _title(item))
+            jobs.enqueue_summary(s, viewer.id, item, item.main_transcript_id, _title(item), model=model)
             return None
     error = await run_in_threadpool(enqueue)
     if error:
         return _message(request, viewer, "Az összefoglaló nem indult el", error, f"/elem/{item_id}", 422)
     return _redirect(f"/elem/{item_id}")
+
+
+@app.post("/elem/{item_id}/osszefoglalo/aktualis")
+async def choose_summary(request: Request, item_id: int, viewer: Viewer = Depends(authed_post)):
+    raw = str((await request.form()).get("summary_id") or "")
+
+    def change() -> bool:
+        with db.user_session(viewer.id) as s:
+            item = s.get(Item, item_id)
+            return item is not None and raw.isdigit() and items.set_current_summary(s, item, int(raw))
+    if not await run_in_threadpool(change):
+        return _message(request, viewer, "Nincs ilyen összefoglaló", "Ez az összefoglaló nem ehhez az elemhez "
+                        "tartozik.", f"/elem/{item_id}", 404)
+    return _redirect(f"/elem/{item_id}")
+
+
+def _download(body: str, filename: str, ascii_name: str, media_type: str) -> Response:
+    return PlainTextResponse(body, media_type=f"{media_type}; charset=utf-8", headers={
+        "Content-Disposition": f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename)}"})
+
+
+@app.get("/elem/{item_id}/osszefoglalo/{summary_id}.md")
+def download_summary(item_id: int, summary_id: int, viewer: Viewer = Depends(current_viewer)):
+    with db.user_session(viewer.id) as s:
+        item = s.get(Item, item_id)
+        if item is None or s.get(ItemSummary, (item_id, summary_id)) is None:
+            return PlainTextResponse("Nincs ilyen összefoglaló.", status_code=404)
+        body = library.summary_markdown(item, s.get(Summary, summary_id))
+        name = library.file_base(item, "osszefoglalo") + ".osszefoglalo.md"
+    return _download(body, name, "osszefoglalo.md", "text/markdown")
+
+
+@app.get("/elem/{item_id}/atirat/{transcript_id}.{fmt}")
+def download_transcript(item_id: int, transcript_id: int, fmt: str, nyelv: str = "",
+                        viewer: Viewer = Depends(current_viewer)):
+    if fmt not in ("txt", "srt"):
+        return PlainTextResponse("Ismeretlen formátum.", status_code=404)
+    with db.user_session(viewer.id) as s:
+        item = s.get(Item, item_id)
+        if item is None or s.get(ItemTranscript, (item_id, transcript_id)) is None:
+            return PlainTextResponse("Nincs ilyen átirat.", status_code=404)
+        t = s.get(Transcript, transcript_id)
+        hu = None
+        if nyelv == "hu":
+            tid = items.latest_translation(s, item_id, transcript_id)
+            if transcript_id == item.main_transcript_id and item.current_translation_id:
+                tid = item.current_translation_id
+            if tid is None:
+                return PlainTextResponse("Ennek az átiratnak nincs magyar fordítása.", status_code=404)
+            hu = {g.idx: g.text for g in s.get(Translation, tid).segments}
+        body = library.to_txt(item, t, hu) if fmt == "txt" else library.to_srt(t, hu)
+        name = f"{library.file_base(item, 'atirat')}.{'hu' if hu is not None else t.language or 'xx'}.{fmt}"
+    return _download(body, name, f"atirat.{fmt}", "text/plain")
+
+
+@app.post("/elem/{item_id}/fo")
+async def make_main(request: Request, item_id: int, viewer: Viewer = Depends(authed_post)):
+    raw = str((await request.form()).get("transcript_id") or "")
+
+    def change() -> bool:
+        with db.user_session(viewer.id) as s:
+            item = s.get(Item, item_id)
+            return item is not None and raw.isdigit() and items.set_main(s, viewer.id, item, int(raw))
+    if not await run_in_threadpool(change):
+        return _message(request, viewer, "Nincs ilyen átirat", "Ez az átirat nem ehhez az elemhez tartozik.",
+                        f"/elem/{item_id}", 404)
+    return _redirect(f"/elem/{item_id}")
+
+
+@app.post("/elem/{item_id}/atirat/{transcript_id}/torles")
+async def delete_transcript(item_id: int, transcript_id: int, viewer: Viewer = Depends(authed_post)):
+    def remove() -> None:
+        with db.user_session(viewer.id) as s:
+            item = s.get(Item, item_id)
+            if item is not None:
+                items.remove_transcript(s, viewer.id, item, transcript_id)
+    await run_in_threadpool(remove)
+    return _redirect(f"/elem/{item_id}")
+
+
+def _own_file_of(s, item: Item) -> dict[str, Any] | None:
+    """The watched-folder file of an own recording (the runner that registered it still has it);
+    browser uploads are gone from here once transcribed."""
+    for job in s.scalars(select(Job).where(Job.item_id == item.id, Job.kind == "transcribe")
+                         .order_by(Job.id.desc())):
+        src = (job.payload or {}).get("source") or {}
+        if src.get("kind") == "local":
+            return dict(src)
+    return None
 
 
 @app.post("/elem/{item_id}/sajat")
@@ -530,6 +712,8 @@ async def rerun_own(request: Request, item_id: int, viewer: Viewer = Depends(aut
             item = s.get(Item, item_id)
             if item is None or item.main_transcript_id is None:
                 return "Ehhez az elemhez még nincs átirat."
+            if item.source.kind == "upload":
+                return "Saját felvételt csak a fájllal együtt lehet újra átíratni."
             busy = s.scalar(select(Job.id).where(Job.item_id == item.id, Job.kind == "transcribe",
                                                  Job.state.in_(ACTIVE)))
             if busy:
@@ -545,8 +729,73 @@ async def rerun_own(request: Request, item_id: int, viewer: Viewer = Depends(aut
     return _redirect(f"/elem/{item_id}")
 
 
+@app.post("/elem/{item_id}/ujrairas")
+async def retranscribe(request: Request, item_id: int, viewer: Viewer = Depends(authed_post)):
+    """A new transcript of the item with other settings (mode, model, language, speakers)."""
+    form = {k: str(v) for k, v in (await request.form()).items()}
+    options, errors = parse_options(form)
+    make_main = form.get("make_main") == "on"
+    summarize = form.get("summarize") == "on"
+
+    def enqueue() -> str | None:
+        with db.system_session() as s:
+            item_source = s.scalar(select(Source).join(Item, Item.source_id == Source.id)
+                                   .where(Item.id == item_id, Item.user_id == viewer.id))
+            if item_source is not None:
+                s.expunge(item_source)
+        if item_source is None:
+            return "Nincs ilyen elem."
+        if errors:
+            return " ".join(errors)
+        if options.get("mode") == "captions" and item_source.kind != "youtube":
+            return "YouTube-feliratot csak YouTube-videóhoz lehet kérni."
+        try:
+            ownfiles.check_storage(get_settings(), viewer.id)
+        except ownfiles.QuotaError as exc:
+            return str(exc)
+        found = reuse.find(item_source, options)
+        with db.user_session(viewer.id) as s:
+            item = s.get(Item, item_id)
+            busy = s.scalar(select(Job.id).where(Job.item_id == item.id, Job.kind == "transcribe",
+                                                 Job.state.in_(ACTIVE)))
+            if busy:
+                return "Az elemhez már fut egy átírás; várd meg, vagy szakítsd meg a Munkák oldalon."
+            if found is not None:
+                if s.get(ItemTranscript, (item.id, found.transcript_id)) is not None:
+                    return "Ilyen beállításokkal már van átirata az elemnek."
+                s.add(ItemTranscript(item_id=item.id, transcript_id=found.transcript_id, user_id=viewer.id,
+                                     reused=True))
+                for model, key, ident in ((ItemSummary, "summary_id", found.summary_id),
+                                          (ItemTranslation, "translation_id", found.translation_id)):
+                    if ident and s.get(model, (item.id, ident)) is None:
+                        s.add(model(item_id=item.id, user_id=viewer.id, reused=True, **{key: ident}))
+                s.flush()
+                if make_main or item.main_transcript_id is None:
+                    items.set_main(s, viewer.id, item, found.transcript_id, want_summary=summarize)
+                return None
+            file = None
+            if item_source.kind == "upload":
+                file = _own_file_of(s, item)
+                if file is None:
+                    return ("A feltöltött fájl már nincs a központon. Töltsd fel újra az Új átirat oldalon: "
+                            "az új átirat ehhez az elemhez kerül.")
+                if options.get("mode") == "captions":
+                    return "Saját felvételhez YouTube-felirat nem kérhető."
+            job = jobs.enqueue_transcription(s, viewer.id, item, s.get(Source, item_source.id), options, summarize,
+                                             file=file)
+            if make_main:
+                job.payload = {**job.payload, "make_main": True}
+            return None
+    error = await run_in_threadpool(enqueue)
+    if error:
+        return _message(request, viewer, "Az újraírás nem indult el", error, f"/elem/{item_id}", 422)
+    return _redirect(f"/elem/{item_id}")
+
+
 @app.post("/elem/{item_id}/forditas")
 async def request_translation(request: Request, item_id: int, viewer: Viewer = Depends(authed_post)):
+    form = await request.form()
+
     def enqueue() -> str | None:
         with db.user_session(viewer.id) as s:
             item = s.get(Item, item_id)
@@ -555,11 +804,14 @@ async def request_translation(request: Request, item_id: int, viewer: Viewer = D
             t = s.get(Transcript, item.main_transcript_id)
             if not jobs.needs_translation(t.language):
                 return "Az átirat magyar, nincs mit fordítani."
+            model, problem = _chosen_model(form, _runners(s), item)
+            if problem:
+                return problem
             busy = s.scalar(select(Job.id).where(Job.item_id == item.id, Job.kind == "translate",
                                                  Job.state.in_(ACTIVE)))
             if busy:
                 return "A fordítás már készül."
-            jobs.enqueue_translation(s, viewer.id, item, item.main_transcript_id, _title(item))
+            jobs.enqueue_translation(s, viewer.id, item, item.main_transcript_id, _title(item), model=model)
             return None
     error = await run_in_threadpool(enqueue)
     if error:
@@ -800,8 +1052,10 @@ def _jobs_context(viewer: Viewer) -> dict[str, Any]:
     # queued jobs that none of the runners has declared it can do (e.g. local Whisper without a GPU)
     unfit = {j.id for j in active if j.state == "queued" and runners
              and not any(jobs.fits(j, r.capabilities or {}, r.id) for r in runners)}
+    with db.user_session(viewer.id) as s:
+        counts = items.backfill_counts(s)
     return {"active": active, "recent": recent, "runner_count": len(runners), "online_count": len(online),
-            "unfit": unfit}
+            "unfit": unfit, "backfill": counts}
 
 
 @app.get("/munkak", response_class=HTMLResponse)
@@ -812,6 +1066,22 @@ def jobs_page(request: Request, viewer: Viewer = Depends(current_viewer)):
 @app.get("/munkak/lista", response_class=HTMLResponse)
 def jobs_partial(request: Request, viewer: Viewer = Depends(current_viewer)):
     return _render(request, "_jobs.html", viewer, **_jobs_context(viewer))
+
+
+BACKFILL = {"osszefoglalok": "summaries", "forditasok": "translations", "indexeles": "index"}
+
+
+@app.post("/munkak/potlas/{what}")
+async def backfill(what: str, viewer: Viewer = Depends(authed_post)):
+    """Queue the missing summaries / translations of every item, or re-index the whole library."""
+    if what not in BACKFILL:
+        return PlainTextResponse("Ismeretlen pótlás.", status_code=404)
+
+    def run() -> None:
+        with db.user_session(viewer.id) as s:
+            items.backfill(s, viewer.id, BACKFILL[what])
+    await run_in_threadpool(run)
+    return _redirect("/munkak")
 
 
 @app.post("/munkak/{job_id}/megszakitas")

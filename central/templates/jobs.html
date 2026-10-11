@@ -5,4 +5,17 @@
 <div hx-get="/munkak/lista" hx-trigger="every 5s" hx-swap="innerHTML">
 {% include "_jobs.html" %}
 </div>
+<h2>Pótlás a teljes könyvtárra</h2>
+<div class="card backfill">
+  <form method="post" action="/munkak/potlas/osszefoglalok" class="inline confirm" data-confirm="{{ backfill.summaries }} elemhez készül összefoglaló (a futtatód modelljével). Indulhat?">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="secondary small" {% if not backfill.summaries %}disabled{% endif %}>Hiányzó összefoglalók ({{ backfill.summaries }})</button>
+  </form>
+  <form method="post" action="/munkak/potlas/forditasok" class="inline confirm" data-confirm="{{ backfill.translations }} nem magyar átirat magyar fordítása indul. Indulhat?">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="secondary small" {% if not backfill.translations %}disabled{% endif %}>Hiányzó fordítások ({{ backfill.translations }})</button>
+  </form>
+  <form method="post" action="/munkak/potlas/indexeles" class="inline confirm" data-confirm="Mind a(z) {{ backfill.all_items }} elem keresési indexe újraépül (a változatlan részek vektora megmarad). Indulhat?">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="secondary small" {% if not backfill.all_items %}disabled{% endif %}>Újraindexelés ({{ backfill.all_items }} elem)</button>
+  </form>
+  <p class="muted">Az összefoglaló és a fordítás a futtatódon fut; a saját felvételek csak a helyi (saját felvételhez beállított) modellt kapják. A keresés indexét a központ építi.</p>
+</div>
 {% endblock %}

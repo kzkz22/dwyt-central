@@ -10,8 +10,10 @@ Status: rounds 1–3 implemented (sign-in, invitations, RLS library, runner prot
 transcription, summary and translate jobs; search: `indexing.py` shared chunks + indexer thread in the web process,
 `search.py` FTS + pg_trgm + pgvector fused by RRF, `embedder.py` = separate `dwyt-central-embed` service;
 `reuse.py`: shareable results taken over at submit; `ownfiles.py`: browser uploads staged until the runner
-has them, runner watched folders via `/runner/v1/local-items`, quotas). Round 3 done; 3c (item-level gaps vs the
-old webui) and round 4 (subscriptions, notifications, MCP) are next.
+has them, runner watched folders via `/runner/v1/local-items`, quotas; 3c: `items.py` main transcript / removal /
+summary versions / bulk backfill, `render.py` summary Markdown subset, TXT/SRT/MD downloads, re-transcription,
+LLM models chosen from the runners' `llm_models` capability, job progress on the item page, unreferenced shared
+results dropped by `indexing.drop_unreferenced_results`). Round 4 (subscriptions, notifications, MCP) is next.
 Source of truth: `dwyt-docs` (`docs/terv.md`, `docs/protokoll.md`). Install: `docs/telepites.md`; tests need PostgreSQL
 (throw-away cluster from tests/pgcluster.py, or TEST_DATABASE_URL as superuser).
 License: AGPL-3.0.

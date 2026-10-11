@@ -73,9 +73,13 @@ def needs_translation(language: str | None) -> bool:
     return bool(language) and not language.lower().startswith(TRANSLATION_TARGET)
 
 
-def enqueue_translation(s: DbSession, user_id: int, item: Item, transcript_id: int, title: str | None) -> Job:
+def enqueue_translation(s: DbSession, user_id: int, item: Item, transcript_id: int, title: str | None,
+                        model: str | None = None) -> Job:
+    """model: chosen on the item page (one the user's runner offers); empty = the runner's default."""
     payload = {"transcript_id": transcript_id, "role": "public" if item.is_public else "private",
                "target": TRANSLATION_TARGET}
+    if model:
+        payload["model"] = model
     job = Job(user_id=user_id, item_id=item.id, kind="translate", state="queued", stage="queued",
               title=title, payload=payload, progress={})
     s.add(job)
@@ -83,9 +87,12 @@ def enqueue_translation(s: DbSession, user_id: int, item: Item, transcript_id: i
     return job
 
 
-def enqueue_summary(s: DbSession, user_id: int, item: Item, transcript_id: int, title: str | None) -> Job:
+def enqueue_summary(s: DbSession, user_id: int, item: Item, transcript_id: int, title: str | None,
+                    model: str | None = None) -> Job:
     payload = {"transcript_id": transcript_id, "role": "public" if item.is_public else "private",
                "language": CAPTIONS_SUMMARY_LANGUAGE}
+    if model:
+        payload["model"] = model
     job = Job(user_id=user_id, item_id=item.id, kind="summarize", state="queued", stage="queued",
               title=title, payload=payload, progress={})
     s.add(job)
@@ -130,8 +137,22 @@ def fits(job: Job, caps: dict[str, Any], runner_id: int | None = None) -> bool:
             return True
         return sources.domain_allowed(src.get("url") or "", caps.get("allowed_domains"))
     if job.kind in ("summarize", "translate"):
-        return job.payload.get("role") in (caps.get("llm_roles") or [])
+        role = job.payload.get("role")
+        if role not in (caps.get("llm_roles") or []):
+            return False
+        model = job.payload.get("model")
+        return not model or model in ((caps.get("llm_models") or {}).get(role) or [])
     return False
+
+
+def offered_models(runners: list[Runner], role: str) -> list[str]:
+    """The models the user's runners offer for a role (public / private), in their order."""
+    out: list[str] = []
+    for r in runners:
+        for name in ((r.capabilities or {}).get("llm_models") or {}).get(role) or []:
+            if name not in out:
+                out.append(name)
+    return out
 
 
 def requeue_expired(s: DbSession, user_id: int, settings: Settings) -> None:
@@ -182,13 +203,14 @@ def job_input(s: DbSession, job: Job) -> dict[str, Any]:
         raise ProtocolError(410, "transcript gone")
     src = s.get(Source, t.source_id)
     meta = src.meta or {}
+    chosen = {"model": job.payload["model"]} if job.payload.get("model") else {}
     if job.kind == "translate":
-        return {"role": job.payload["role"], "source_language": t.language,
+        return {**chosen, "role": job.payload["role"], "source_language": t.language,
                 "target": job.payload.get("target", TRANSLATION_TARGET),
                 "meta": {"title": meta.get("title"), "channel": meta.get("channel"), "url": src.url},
                 "segments": [{"idx": g.idx, "text": g.text} for g in t.segments]}
     return {
-        "role": job.payload["role"], "language": job.payload.get("language", "hu"),
+        **chosen, "role": job.payload["role"], "language": job.payload.get("language", "hu"),
         "meta": {"title": meta.get("title"), "channel": meta.get("channel"),
                  "duration_s": meta.get("duration_s"), "url": src.url},
         "transcript": {"language": t.language, "mode": t.mode, "model": t.model, "caption_kind": t.caption_kind,

@@ -10,7 +10,7 @@
   <li class="card">
     <div class="bar"><span><strong>{{ kind_labels.get(job.kind, job.kind) }}</strong> · {% if job.item_id %}<a href="/elem/{{ job.item_id }}">{{ job.title or ('#' ~ job.id) }}</a>{% else %}{{ job.title }}{% endif %}</span>
     <form method="post" action="/munkak/{{ job.id }}/megszakitas" class="inline"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="secondary small">Megszakítás</button></form></div>
-    <div class="meta">{{ state_labels[job.state] }}{% if job.state == 'running' and job.stage %} – {{ stage_label(job.stage) }}{% endif %}{% if job.cancel_requested %} (megszakítás kérve){% endif %}{% if job.error %} · {{ job.error }}{% endif %}{% if job.id in unfit %} · <span class="error-text">egyik futtatód sem jelentette, hogy ezt el tudja végezni (lásd a Futtatók oldalt)</span>{% endif %}{% if job.state == 'queued' and job.attempts %} · újrapróbálás: {{ job.run_after|local }}{% endif %}</div>
+    <div class="meta">{{ state_labels[job.state] }}{% if job.state == 'running' and job.stage %} – {{ stage_label(job.stage) }}{% if job.progress.parts %} ({{ job.progress.part }}/{{ job.progress.parts }}){% endif %}{% if job.progress.model %} · {{ job.progress.model }}{% endif %}{% endif %}{% if job.cancel_requested %} (megszakítás kérve){% endif %}{% if job.error %} · {{ job.error }}{% endif %}{% if job.id in unfit %} · <span class="error-text">egyik futtatód sem jelentette, hogy ezt el tudja végezni (lásd a Futtatók oldalt)</span>{% endif %}{% if job.state == 'queued' and job.attempts %} · újrapróbálás: {{ job.run_after|local }}{% endif %}</div>
   </li>
 {% endfor %}
 </ul>

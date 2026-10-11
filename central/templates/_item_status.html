@@ -1,0 +1,9 @@
+{% from "_macros.html" import job_line %}
+<div id="item-status"{% if active_jobs %} hx-get="/elem/{{ item.id }}/allapot" hx-trigger="every 5s" hx-swap="outerHTML"{% endif %}>
+{% for job in active_jobs %}
+<p class="warn-box">{{ job_line(job, now) }} · <a href="/munkak">Munkák</a></p>
+{% endfor %}
+{% if last_failed and not active_jobs %}
+<p class="error">Legutóbbi hiba ({{ kind_labels.get(last_failed.kind, last_failed.kind) }}): {{ last_failed.error }} · <a href="/munkak">Munkák</a></p>
+{% endif %}
+</div>
