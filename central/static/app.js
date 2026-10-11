@@ -78,7 +78,80 @@
     uploadFile(form, input.files[0]).then((ok) => { if (ok) form.submit(); });
   }
 
+  // ---- frame: collapsible sidebar (desktop), off-canvas menu (mobile), theme ----
+  const root = document.documentElement;
+  const store = (key, value) => { try { localStorage.setItem(key, value); } catch (err) { /* blocked */ } };
+  const mobile = () => window.matchMedia("(max-width: 899px)").matches;
+
+  function syncCollapse() {
+    const collapsed = root.classList.contains("sb-collapsed");
+    document.querySelectorAll("[data-sidebar-collapse]").forEach((b) => {
+      b.setAttribute("aria-expanded", String(!collapsed));
+      b.setAttribute("aria-label", collapsed ? "Menü kinyitása" : "Menü becsukása");
+    });
+    // a collapsed sidebar shows icons only: the names become tooltips
+    document.querySelectorAll(".sb-link, .sb-tools .icon-button").forEach((a) => {
+      const label = a.querySelector(".sb-label");
+      if (collapsed && label) a.setAttribute("title", label.textContent); else a.removeAttribute("title");
+    });
+  }
+
+  let lastFocus = null;
+  function openMenu() {
+    const sidebar = document.getElementById("sidebar");
+    if (!sidebar) return;
+    lastFocus = document.activeElement;
+    root.classList.add("sb-open");
+    document.querySelectorAll(".sb-backdrop").forEach((b) => { b.hidden = false; });
+    document.querySelectorAll("[data-sidebar-open]").forEach((b) => b.setAttribute("aria-expanded", "true"));
+    sidebar.setAttribute("role", "dialog");
+    sidebar.setAttribute("aria-modal", "true");
+    const first = sidebar.querySelector("[aria-current]") || sidebar.querySelector("a, button");
+    if (first) first.focus();
+  }
+  function closeMenu() {
+    if (!root.classList.contains("sb-open")) return;
+    const sidebar = document.getElementById("sidebar");
+    root.classList.remove("sb-open");
+    document.querySelectorAll(".sb-backdrop").forEach((b) => { b.hidden = true; });
+    document.querySelectorAll("[data-sidebar-open]").forEach((b) => b.setAttribute("aria-expanded", "false"));
+    sidebar.removeAttribute("role");
+    sidebar.removeAttribute("aria-modal");
+    if (lastFocus) lastFocus.focus();
+  }
+
+  document.addEventListener("click", function (e) {
+    const el = e.target.closest ? e.target.closest("[data-sidebar-open], [data-sidebar-close], [data-sidebar-collapse], [data-theme-toggle]") : null;
+    if (!el) return;
+    if (el.hasAttribute("data-sidebar-open")) openMenu();
+    else if (el.hasAttribute("data-sidebar-close")) closeMenu();
+    else if (el.hasAttribute("data-sidebar-collapse")) {
+      root.classList.add("sb-animate");
+      root.classList.toggle("sb-collapsed");
+      store("dwyt-sidebar", root.classList.contains("sb-collapsed") ? "collapsed" : "open");
+      syncCollapse();
+    } else if (el.hasAttribute("data-theme-toggle")) {
+      const dark = root.dataset.theme ? root.dataset.theme === "dark"
+        : window.matchMedia("(prefers-color-scheme: dark)").matches;
+      root.dataset.theme = dark ? "light" : "dark";
+      store("dwyt-theme", root.dataset.theme);
+    }
+  });
+  document.addEventListener("keydown", function (e) {
+    if (!root.classList.contains("sb-open")) return;
+    if (e.key === "Escape") { closeMenu(); return; }
+    if (e.key === "Tab") {  // keep the focus inside the open menu
+      const items = Array.from(document.getElementById("sidebar").querySelectorAll("a, button")).filter((x) => x.offsetParent);
+      if (!items.length) return;
+      const first = items[0], last = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  });
+  window.addEventListener("resize", () => { if (!mobile()) closeMenu(); });
+
   function init() {
+    syncCollapse();
     document.querySelectorAll("form#submit-form").forEach((form) => {
       form.addEventListener("change", (e) => {
         if (e.target.name === "source") syncForm(form);

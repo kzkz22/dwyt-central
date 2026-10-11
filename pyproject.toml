@@ -36,7 +36,7 @@ build-backend = "setuptools.build_meta"
 include = ["central*"]
 
 [tool.setuptools.package-data]
-central = ["templates/*.html", "static/*"]
+central = ["templates/*.html", "static/*", "static/fonts/*"]
 
 [tool.ruff]
 line-length = 120

@@ -1,38 +1,78 @@
+{% from "_icons.html" import icon, logo %}
 <!doctype html>
 <html lang="hu">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <meta name="htmx-config" content='{"includeIndicatorStyles": false, "allowEval": false, "allowScriptTags": false}'>
 <title>{% block title %}dwyt{% endblock %} · dwyt</title>
+<link rel="preload" href="{{ asset('fonts/inter-latin-wght-normal.woff2') }}" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="{{ asset('style.css') }}">
+{# Theme and sidebar state before the first paint (an external file: the CSP allows no inline script). #}
+<script src="{{ asset('theme.js') }}"></script>
 <script src="{{ asset('htmx.min.js') }}" defer></script>
 <script src="{{ asset('app.js') }}" defer></script>
 </head>
-<body hx-headers='{"X-CSRF-Token": "{{ csrf }}"}' data-csrf="{{ csrf }}">
+<body hx-headers='{"X-CSRF-Token": "{{ csrf }}"}' data-csrf="{{ csrf }}" class="{{ 'with-sidebar' if viewer else 'bare' }}">
+<a class="skip-link" href="#main">Ugrás a tartalomhoz</a>
 {% if viewer %}
-<header class="top">
-  <a class="brand" href="/">dwyt</a>
-  <nav>
-    <a href="/">Könyvtár</a>
-    <a href="/kereses">Keresés</a>
-    <a href="/uj">Új átirat</a>
-    <a href="/postalada">Postaláda</a>
-    <a href="/csatornak">Csatornák</a>
-    <a href="/munkak">Munkák</a>
-    <a href="/futtatok">Futtatók</a>
-    <a href="/beallitasok">Beállítások</a>
-    {% if viewer.is_admin %}<a href="/admin">Admin</a>{% endif %}
-  </nav>
-  <span class="muted">{{ viewer.name or viewer.email }}</span>
-  <form method="post" action="/kilepes" class="inline">
-    <input type="hidden" name="csrf_token" value="{{ csrf }}">
-    <button class="link">Kilépés</button>
-  </form>
-</header>
-{% endif %}
-<main>
+{% set path = request.url.path %}
+{% set nav = [
+  ("Tartalom", [("/", "library", "Könyvtár"), ("/kereses", "search", "Keresés"), ("/uj", "plus", "Új átirat")]),
+  ("Feliratkozások", [("/postalada", "inbox", "Postaláda"), ("/csatornak", "tv", "Csatornák")]),
+  ("Rendszer", [("/munkak", "jobs", "Munkák"), ("/futtatok", "server", "Futtatók"), ("/beallitasok", "settings", "Beállítások")]
+               + ([("/admin", "shield", "Admin")] if viewer.is_admin else [])),
+] %}
+<div class="shell">
+  <aside class="sidebar" id="sidebar" aria-label="Oldalsáv"><div class="sb-inner">
+    <div class="sb-head">
+      <a class="brand" href="/" aria-label="dwyt – Könyvtár">{{ logo() }}<span class="brand-text"><span class="brand-name">dwyt</span><span class="brand-sub">Átiratok és összefoglalók</span></span></a>
+      <button type="button" class="icon-button sb-collapse" data-sidebar-collapse aria-controls="sidebar" aria-expanded="true" aria-label="Menü becsukása">{{ icon("panel") }}</button>
+      <button type="button" class="icon-button sb-close" data-sidebar-close aria-label="Menü bezárása">{{ icon("x") }}</button>
+    </div>
+    <nav class="sb-nav" aria-label="Fő navigáció">
+      {% for group, links in nav %}
+      <p class="sb-group">{{ group }}</p>
+      <ul role="list">
+        {% for href, ic, label in links %}
+        {% set active = path == href or (href != "/" and path.startswith(href)) or (href == "/" and path.startswith("/elem/")) %}
+        <li><a href="{{ href }}" class="sb-link"{% if active %} aria-current="page"{% endif %}>{{ icon(ic) }}<span class="sb-label">{{ label }}</span>{% if active %}{{ icon("chevron", 14, "sb-chev") }}{% endif %}</a></li>
+        {% endfor %}
+      </ul>
+      {% endfor %}
+    </nav>
+    <div class="sb-foot">
+      <div class="sb-user">
+        <span class="avatar" aria-hidden="true">{{ ((viewer.name or viewer.email)[:1])|upper }}</span>
+        <span class="sb-user-text"><span class="sb-user-name">{{ viewer.name or viewer.email }}</span><span class="sb-user-role">{{ 'admin' if viewer.is_admin else viewer.email }}</span></span>
+      </div>
+      <div class="sb-tools">
+        <button type="button" class="icon-button" data-theme-toggle aria-label="Sötét / világos téma">{{ icon("moon", 16, "when-light") }}{{ icon("sun", 16, "when-dark") }}<span class="sb-label">Téma</span></button>
+        <form method="post" action="/kilepes">
+          <input type="hidden" name="csrf_token" value="{{ csrf }}">
+          <button class="icon-button" aria-label="Kilépés">{{ icon("logout", 16) }}<span class="sb-label">Kilépés</span></button>
+        </form>
+      </div>
+    </div>
+  </div></aside>
+  <div class="sb-backdrop" data-sidebar-close hidden></div>
+  <div class="content">
+    <header class="mobile-top">
+      <button type="button" class="icon-button" data-sidebar-open aria-controls="sidebar" aria-expanded="false" aria-label="Menü megnyitása">{{ icon("menu", 20) }}</button>
+      <a class="brand" href="/">{{ logo(22) }}<span class="brand-name">dwyt</span></a>
+      <button type="button" class="icon-button" data-theme-toggle aria-label="Sötét / világos téma">{{ icon("moon", 18, "when-light") }}{{ icon("sun", 18, "when-dark") }}</button>
+    </header>
+    <main id="main" tabindex="-1">
 {% block content %}{% endblock %}
+    </main>
+  </div>
+</div>
+{% else %}
+<main id="main" tabindex="-1" class="bare-main">
+  <div class="bare-brand">{{ logo(36) }}<span class="brand-name">dwyt</span></div>
+{{ self.content() }}
 </main>
+{% endif %}
 </body>
 </html>
