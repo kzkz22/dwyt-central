@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 import re
+import tempfile
 import sys
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -20,7 +21,7 @@ from fakes import FakeEmbed, FakeGoogle  # noqa: E402
 from pgcluster import Cluster  # noqa: E402
 
 PROTO = {"Dwyt-Protocol": "1"}
-TABLES = ("index_queue, chunks, item_translations, translation_segments, translations, "
+TABLES = ("uploads, index_queue, chunks, item_translations, translation_segments, translations, "
           "jobs, item_summaries, item_transcripts, items, summaries, segments, transcripts, sources, "
           "pair_requests, runners, login_states, sessions, invites, users")
 
@@ -81,7 +82,7 @@ def configured(database_urls, fake_google):
                       GOOGLE_CLIENT_SECRET="gsecret", GOOGLE_TOKEN_URL=f"{fake_google.url}/token",
                       GOOGLE_AUTH_URL="https://accounts.example/auth", REGISTRATION="invite",
                       CLAIM_WAIT_S="0.3", CLAIM_POLL_S="0.05", LEASE_S="900",
-                      INDEXER="false", EMBED_URL="")
+                      INDEXER="false", EMBED_URL="", STAGING_DIR=tempfile.mkdtemp(prefix="dwyt-staging-"))
     from alembic import command
     from alembic.config import Config
 

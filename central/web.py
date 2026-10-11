@@ -25,11 +25,11 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from starlette.concurrency import run_in_threadpool
 
-from . import accounts, db, indexing, jobs, library, protocol, ratelimit, reuse, search, security, sources
+from . import accounts, db, indexing, jobs, library, ownfiles, protocol, ratelimit, reuse, search, security, sources
 from .config import Settings, get_settings
 from .db import utcnow
 from .models import (ACTIVE, Invite, Item, ItemSummary, ItemTranscript, ItemTranslation, Job, Runner, Session,
-                     Source, Summary, Transcript, Translation, User)
+                     Source, Summary, Transcript, Translation, Upload, User)
 
 log = logging.getLogger("dwyt")
 HERE = Path(__file__).resolve().parent
@@ -546,12 +546,21 @@ async def request_translation(request: Request, item_id: int, viewer: Viewer = D
 
 # ---- settings -----------------------------------------------------------------------------
 
+def _usage(viewer: Viewer) -> dict[str, Any]:
+    settings = get_settings()
+    lim = ownfiles.user_limits(settings, viewer.id)
+    with db.user_session(viewer.id) as s:
+        pending = ownfiles.pending_uploads(s, viewer.id)
+    return {"used_mb": ownfiles.storage_used(viewer.id) / 1024 ** 2, "quota_mb": lim.storage_bytes / 1024 ** 2,
+            "upload_mb": lim.upload_bytes // 1024 ** 2, "pending": pending, "pending_max": lim.pending}
+
+
 @app.get("/beallitasok", response_class=HTMLResponse)
 def settings_page(request: Request, viewer: Viewer = Depends(current_viewer)):
     with db.system_session() as s:
         user = s.get(User, viewer.id)
         translate_auto = user.translate_auto
-    return _render(request, "settings.html", viewer, translate_auto=translate_auto, saved=False)
+    return _render(request, "settings.html", viewer, translate_auto=translate_auto, saved=False, usage=_usage(viewer))
 
 
 @app.post("/beallitasok")
@@ -563,7 +572,7 @@ async def save_settings(request: Request, viewer: Viewer = Depends(authed_post))
         with db.system_session() as s:  # the users table is the system's; only the viewer's own row
             s.get(User, viewer.id).translate_auto = value
     await run_in_threadpool(save)
-    return _render(request, "settings.html", viewer, translate_auto=value, saved=True)
+    return _render(request, "settings.html", viewer, translate_auto=value, saved=True, usage=_usage(viewer))
 
 
 # ---- search -------------------------------------------------------------------------------
@@ -631,10 +640,28 @@ def parse_options(form: dict[str, str]) -> tuple[dict[str, Any], list[str]]:
     return options, errors
 
 
+def _submit_ctx(viewer: Viewer) -> dict[str, Any]:
+    lim = ownfiles.user_limits(get_settings(), viewer.id)
+    return {"modes": MODES, "cloud_models": CLOUD_MODELS, "local_models": LOCAL_MODELS,
+            "upload_max_mb": lim.upload_bytes // 1024 ** 2}
+
+
 @app.get("/uj", response_class=HTMLResponse)
 def submit_page(request: Request, viewer: Viewer = Depends(current_viewer)):
-    return _render(request, "submit.html", viewer, form={"summarize": "on"}, errors=[], modes=MODES,
-                   cloud_models=CLOUD_MODELS, local_models=LOCAL_MODELS)
+    return _render(request, "submit.html", viewer, form={"summarize": "on", "source": "url"}, errors=[],
+                   **_submit_ctx(viewer))
+
+
+@app.put("/feltoltes")
+async def stage_upload(request: Request, name: str = "feltoltes", viewer: Viewer = Depends(current_viewer)):
+    """Receive a file from the browser (raw body, X-CSRF-Token header) into staging."""
+    if not secrets.compare_digest(request.headers.get("X-CSRF-Token", ""), viewer.csrf):
+        raise BadCsrf()
+    try:
+        up = await ownfiles.receive(request, get_settings(), viewer.id, name)
+    except ownfiles.QuotaError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=413)
+    return {"staging_id": up.id, "name": up.name, "size": up.size}
 
 
 def _source_for(ref: sources.SourceRef) -> int:
@@ -647,6 +674,8 @@ def _source_for(ref: sources.SourceRef) -> int:
 @app.post("/uj")
 async def submit(request: Request, viewer: Viewer = Depends(authed_post)):
     form = {k: str(v) for k, v in (await request.form()).items()}
+    if form.get("source") == "upload":
+        return await _submit_upload(request, viewer, form)
     options, errors = parse_options(form)
     ref = None
     try:
@@ -655,9 +684,14 @@ async def submit(request: Request, viewer: Viewer = Depends(authed_post)):
         errors.append(str(exc))
     if ref is not None and options.get("mode") == "captions" and ref.kind != "youtube":
         errors.append("YouTube-feliratot csak YouTube-videóhoz lehet kérni.")
+    if not errors:
+        try:
+            await run_in_threadpool(ownfiles.check_storage, get_settings(), viewer.id)
+        except ownfiles.QuotaError as exc:
+            errors.append(str(exc))
     if errors:
-        return _render(request, "submit.html", viewer, form=form, errors=errors, modes=MODES,
-                       cloud_models=CLOUD_MODELS, local_models=LOCAL_MODELS, status_code=422)
+        return _render(request, "submit.html", viewer, form=form, errors=errors, status_code=422,
+                       **_submit_ctx(viewer))
     source_id = await run_in_threadpool(_source_for, ref)
     summarize = form.get("summarize") == "on"
 
@@ -684,6 +718,53 @@ async def submit(request: Request, viewer: Viewer = Depends(authed_post)):
     return _redirect(f"/elem/{item_id}")
 
 
+async def _submit_upload(request: Request, viewer: Viewer, form: dict[str, str]):
+    """An uploaded own recording: private, never reused, local Whisper by default."""
+    form.setdefault("mode", "local")
+    options, errors = parse_options(form)
+    if options.get("mode") == "captions":
+        errors.append("Feltöltött fájlhoz YouTube-felirat nem kérhető; válaszd a helyi Whispert vagy a felhőt.")
+    staging_id = form.get("staging_id", "")
+
+    def prepare() -> tuple[Upload | None, str | None]:
+        if not staging_id.isdigit():
+            return None, "Előbb töltsd fel a fájlt (várd meg, amíg a feltöltés befejeződik)."
+        with db.user_session(viewer.id) as s:
+            up = s.get(Upload, int(staging_id))
+            if up is None or up.used_at is not None or up.consumed_at is not None:
+                return None, "Ez a feltöltés már nem használható; töltsd fel újra."
+            s.expunge(up)
+            return up, None
+    up, problem = await run_in_threadpool(prepare)
+    if problem:
+        errors.append(problem)
+    if errors:
+        return _render(request, "submit.html", viewer, form=form, errors=errors, status_code=422,
+                       **_submit_ctx(viewer))
+    summarize = form.get("summarize") == "on"
+    key = f"upload:{up.sha256}"
+
+    def enqueue() -> int:
+        with db.system_session() as s:
+            s.execute(insert(Source).values(kind="upload", key=key, url=None, meta={})
+                      .on_conflict_do_nothing(index_elements=[Source.key]))
+            source_id = s.scalar(select(Source.id).where(Source.key == key))
+        with db.user_session(viewer.id) as s:
+            item = s.scalar(select(Item).where(Item.source_id == source_id))
+            if item is None:
+                item = Item(user_id=viewer.id, source_id=source_id, is_public=False, title=up.name)
+                s.add(item)
+                s.flush()
+                indexing.enqueue(s, item)
+            s.get(Upload, up.id).used_at = utcnow()
+            jobs.enqueue_transcription(s, viewer.id, item, s.get(Source, source_id), options, summarize,
+                                       file={"kind": "upload", "sha256": up.sha256, "name": up.name,
+                                             "size": up.size, "upload_id": up.id})
+            return item.id
+    item_id = await run_in_threadpool(enqueue)
+    return _redirect(f"/elem/{item_id}")
+
+
 # ---- jobs ---------------------------------------------------------------------------------
 
 def _jobs_context(viewer: Viewer) -> dict[str, Any]:
@@ -695,7 +776,7 @@ def _jobs_context(viewer: Viewer) -> dict[str, Any]:
     online = [r for r in runners if r.last_seen_at and (utcnow() - r.last_seen_at).total_seconds() < ONLINE_S]
     # queued jobs that none of the runners has declared it can do (e.g. local Whisper without a GPU)
     unfit = {j.id for j in active if j.state == "queued" and runners
-             and not any(jobs.fits(j, r.capabilities or {}) for r in runners)}
+             and not any(jobs.fits(j, r.capabilities or {}, r.id) for r in runners)}
     return {"active": active, "recent": recent, "runner_count": len(runners), "online_count": len(online),
             "unfit": unfit}
 
@@ -795,8 +876,11 @@ def _admin_context() -> dict[str, Any]:
         runner_counts = dict(s.execute(select(Runner.user_id, func.count()).where(Runner.revoked_at.is_(None))
                                        .group_by(Runner.user_id)).all())
         invites = s.scalars(select(Invite).order_by(Invite.id.desc()).limit(50)).all()
+    settings = get_settings()
+    usage = {u.id: ownfiles.storage_used(u.id) / 1024 ** 2 for u in users}
     return {"users": users, "item_counts": counts, "runner_counts": runner_counts, "invites": invites,
-            "now": utcnow(), "registration": get_settings().registration}
+            "now": utcnow(), "registration": settings.registration, "usage": usage,
+            "default_storage_mb": settings.storage_quota_mb, "default_upload_mb": settings.upload_max_mb}
 
 
 @app.get("/admin", response_class=HTMLResponse)
@@ -825,6 +909,23 @@ async def revoke_invite(invite_id: int, viewer: Viewer = Depends(admin_post)):
             invite = s.get(Invite, invite_id)
             if invite is not None and invite.used_at is None:
                 invite.revoked_at = utcnow()
+    await run_in_threadpool(run)
+    return _redirect("/admin")
+
+
+@app.post("/admin/felhasznalo/{user_id}/kvota")
+async def user_quota(request: Request, user_id: int, viewer: Viewer = Depends(admin_post)):
+    form = await request.form()
+
+    def value(name: str) -> int | None:
+        raw = str(form.get(name, "")).strip()
+        return int(raw) if raw.isdigit() and 0 < int(raw) <= 1_000_000 else None
+
+    def run() -> None:
+        with db.system_session() as s:
+            user = s.get(User, user_id)
+            if user is not None:
+                user.quota_storage_mb, user.quota_upload_mb = value("storage_mb"), value("upload_mb")
     await run_in_threadpool(run)
     return _redirect("/admin")
 

@@ -49,6 +49,12 @@ class Settings:
     embed_threads: int = field(default_factory=lambda: int(_env("EMBED_THREADS", "2")))
     # cosine similarity a meaning-based hit needs (bge-m3: related ~0.5-0.7, unrelated ~0.3-0.4)
     search_min_similarity: float = field(default_factory=lambda: float(_env("SEARCH_MIN_SIMILARITY", "0.45")))
+    # Own recordings and quotas (defaults; the admin can override per user)
+    staging_dir: str = field(default_factory=lambda: _env("STAGING_DIR", "/var/lib/dwyt/staging"))
+    upload_max_mb: int = field(default_factory=lambda: int(_env("UPLOAD_MAX_MB", "2000")))
+    upload_pending_max: int = field(default_factory=lambda: int(_env("UPLOAD_PENDING_MAX", "2")))
+    upload_keep_days: float = field(default_factory=lambda: float(_env("UPLOAD_KEEP_DAYS", "7")))
+    storage_quota_mb: int = field(default_factory=lambda: int(_env("STORAGE_QUOTA_MB", "2048")))
     # the indexer thread inside the web service (false only in tests)
     indexer: bool = field(default_factory=lambda: _bool("INDEXER", True))
 

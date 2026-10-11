@@ -31,7 +31,11 @@
   <ul class="jobs">
   {% for u in users %}
     <li class="bar">
-      <span>{{ u.name or u.email }} <span class="meta">{{ u.email }} · {{ 'admin' if u.role == 'admin' else 'felhasználó' }} · {{ item_counts.get(u.id, 0) }} elem · {{ runner_counts.get(u.id, 0) }} futtató · utolsó belépés: {{ u.last_login_at|local if u.last_login_at else '–' }}{% if u.disabled %} · <strong>letiltva</strong>{% endif %}</span></span>
+      <span>{{ u.name or u.email }} <span class="meta">{{ u.email }} · {{ 'admin' if u.role == 'admin' else 'felhasználó' }} · {{ item_counts.get(u.id, 0) }} elem · {{ runner_counts.get(u.id, 0) }} futtató · utolsó belépés: {{ u.last_login_at|local if u.last_login_at else '–' }} · tárhely: {{ usage[u.id]|round(0)|int }} / {{ u.quota_storage_mb or default_storage_mb }} MB{% if u.disabled %} · <strong>letiltva</strong>{% endif %}</span></span>
+      <form method="post" action="/admin/felhasznalo/{{ u.id }}/kvota" class="inline quota"><input type="hidden" name="csrf_token" value="{{ csrf }}">
+        <label>Tárhely (MB) <input name="storage_mb" class="num" value="{{ u.quota_storage_mb or '' }}" placeholder="{{ default_storage_mb }}" inputmode="numeric"></label>
+        <label>Feltöltés (MB) <input name="upload_mb" class="num" value="{{ u.quota_upload_mb or '' }}" placeholder="{{ default_upload_mb }}" inputmode="numeric"></label>
+        <button class="secondary small">Keret mentése</button></form>
       {% if u.id != viewer.id %}<form method="post" action="/admin/felhasznalo/{{ u.id }}/{{ 'engedelyezes' if u.disabled else 'tiltas' }}" class="inline"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="secondary small">{{ 'Engedélyezés' if u.disabled else 'Letiltás' }}</button></form>{% endif %}
     </li>
   {% endfor %}

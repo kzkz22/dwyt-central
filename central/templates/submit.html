@@ -3,9 +3,23 @@
 {% block content %}
 <h1>Új átirat</h1>
 {% for e in errors %}<p class="error" role="alert">{{ e }}</p>{% endfor %}
-<form method="post" action="/uj" class="card">
+<form method="post" action="/uj" class="card" id="submit-form">
   <input type="hidden" name="csrf_token" value="{{ csrf }}">
-  <label>Videó URL-je <input name="url" value="{{ form.url or '' }}" placeholder="https://www.youtube.com/watch?v=…" required autofocus></label>
+  {% set src = form.source or 'url' %}
+  <fieldset class="sources"><legend>Forrás</legend>
+    <label class="choice"><input type="radio" name="source" value="url" {% if src == 'url' %}checked{% endif %}> Videó URL-je</label>
+    <label class="choice"><input type="radio" name="source" value="upload" {% if src == 'upload' %}checked{% endif %}> Saját felvétel feltöltése</label>
+  </fieldset>
+  <div data-for-source="url">
+    <label>Videó URL-je <input name="url" value="{{ form.url or '' }}" placeholder="https://www.youtube.com/watch?v=…"></label>
+  </div>
+  <div data-for-source="upload">
+    <label>Hang- vagy videófájl (legfeljebb {{ upload_max_mb }} MB) <input type="file" id="upload-file" accept="audio/*,video/*"></label>
+    <input type="hidden" name="staging_id" id="staging-id" value="{{ form.staging_id or '' }}">
+    <progress id="upload-progress" max="100" value="0" hidden></progress>
+    <p id="upload-status" class="muted" aria-live="polite">{% if form.staging_id %}A fájl feltöltve.{% endif %}</p>
+    <p class="muted">Saját felvétel: más nem kaphatja meg az eredményét, az összefoglaló és a fordítás csak a futtatód saját (helyi) modelljével készül. Ha a fájl nem hagyhatja el a gépedet, használd a futtató figyelt mappáját.</p>
+  </div>
   <fieldset><legend>Mód</legend>
   {% for value, label in modes.items() %}
     <label class="choice"><input type="radio" name="mode" value="{{ value }}" {% if (form.mode or 'captions') == value %}checked{% endif %}> {{ label }}</label>
@@ -22,7 +36,7 @@
     <label>Beszélők száma (helyi és felhős módban, ha tudod) <input name="num_speakers" class="num" value="{{ form.num_speakers or '' }}" inputmode="numeric"></label>
   </div>
   <label class="choice"><input type="checkbox" name="summarize" {% if form.summarize == 'on' %}checked{% endif %}> Magyar összefoglaló is</label>
-  <p><button>Beküldés</button></p>
+  <p><button id="submit-button">Beküldés</button></p>
   <p class="muted">A munkát a saját futtatód végzi el; a helyi Whisperhez AI-router és GPU-gép kell (dwyt-airouter, dwyt-gpu). A felhős átírás és a felhős összefoglaló a futtatódban megadott kulccsal, a te költségedre megy.</p>
 </form>
 {% endblock %}

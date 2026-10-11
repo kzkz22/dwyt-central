@@ -12,15 +12,16 @@ from datetime import timedelta
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Header, Request
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field, StringConstraints, ValidationError, field_validator
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as sa_insert
 from starlette.concurrency import run_in_threadpool
 
-from . import db, jobs, ratelimit
+from . import db, jobs, ownfiles, ratelimit
 from .config import get_settings
 from .db import utcnow
-from .models import Job, PairRequest, Runner, User
+from .models import Item, Job, PairRequest, Runner, Source, User
 from .security import new_token, token_hash
 
 PROTOCOL = 1
@@ -168,6 +169,8 @@ class Capabilities(BaseModel):
     max_upload_bytes: int | None = None
     local_sources: bool = False
     whisper_models: list[Annotated[str, StringConstraints(max_length=40)]] = Field(default_factory=list, max_length=20)
+    # where the media may come from besides URLs: upload (staged here), local (the runner's watched folder)
+    source_kinds: list[Short] = Field(default_factory=list, max_length=20)
 
 
 class ClaimBody(BaseModel):
@@ -296,6 +299,91 @@ class SummaryResult(BaseModel):
     completion_tokens: int | None = None
     reasoning_tokens: int | None = None
     duration_s: float | None = None
+
+
+# ---- own recordings ---------------------------------------------------------------------------
+
+def _media_path(runner: Runner, job_id: int) -> tuple[int, str]:
+    with db.system_session() as s:
+        job = s.get(Job, job_id)
+        if job is None or job.user_id != runner.user_id:
+            return 404, "no such job"
+        if job.state != "running" or job.runner_id != runner.id:
+            return 409, "the job is not running on this runner"
+        src = job.payload.get("source") or {}
+        if src.get("kind") != "upload":
+            return 404, "this job has no uploaded file"
+        path = ownfiles.staged_path(get_settings(), src.get("sha256", ""))
+        if not path.is_file():
+            return 410, "the uploaded file is gone (expired); upload it again"
+        return 200, str(path)
+
+
+@router.get("/jobs/{job_id}/media")
+async def media(job_id: int, runner: Runner = Depends(current_runner)):
+    """The uploaded file of a running job, for the runner that holds it (HTTP Range supported)."""
+    status, value = await run_in_threadpool(_media_path, runner, job_id)
+    if status != 200:
+        return _error(status, value)
+    return FileResponse(value, media_type="application/octet-stream")
+
+
+class LocalItem(BaseModel):
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    name: str = Field(min_length=1, max_length=500)
+    size: int = Field(ge=1)
+    options: dict[str, Any] = Field(default_factory=dict)
+    summarize: bool = True
+
+
+def _register_local(runner: Runner, body: LocalItem) -> tuple[int, dict]:
+    from .web import parse_options  # one place for the option rules
+    form = {k: str(v) for k, v in body.options.items() if v is not None}
+    form.setdefault("mode", "local")
+    if "model" in form:
+        form["model_" + form["mode"]] = form.pop("model")
+    options, errors = parse_options(form)
+    if options.get("mode") == "captions":
+        errors.append("Saját felvételhez YouTube-felirat nem kérhető.")
+    if errors:
+        return 422, {"error": " ".join(errors)}
+    settings = get_settings()
+    try:
+        ownfiles.check_storage(settings, runner.user_id)
+    except ownfiles.QuotaError as exc:
+        return 403, {"error": str(exc)}
+    key = f"upload:{body.sha256}"
+    with db.system_session() as s:
+        s.execute(sa_insert(Source).values(kind="upload", key=key, url=None, meta={})
+                  .on_conflict_do_nothing(index_elements=[Source.key]))
+        source_id = s.scalar(select(Source.id).where(Source.key == key))
+    name = ownfiles.clean_name(body.name)
+    with db.user_session(runner.user_id) as s:
+        item = s.scalar(select(Item).where(Item.source_id == source_id))
+        if item is not None and item.main_transcript_id is not None:
+            return 200, {"item_id": item.id, "job_id": None, "existing": True}
+        if item is None:
+            item = Item(user_id=runner.user_id, source_id=source_id, is_public=False, title=name)
+            s.add(item)
+            s.flush()
+        active = s.scalar(select(Job).where(Job.item_id == item.id, Job.kind == "transcribe",
+                                            Job.state.in_(("queued", "running"))))
+        if active is not None:
+            return 200, {"item_id": item.id, "job_id": active.id, "existing": False}
+        job = jobs.enqueue_transcription(
+            s, runner.user_id, item, s.get(Source, source_id), options, body.summarize,
+            file={"kind": "local", "sha256": body.sha256, "name": name, "size": body.size, "runner_id": runner.id})
+        from . import indexing
+        indexing.enqueue(s, item)
+        return 200, {"item_id": item.id, "job_id": job.id, "existing": False}
+
+
+@router.post("/local-items")
+async def local_items(body: LocalItem, runner: Runner = Depends(current_runner)):
+    """A new file in the runner's watched folder: create the item and a transcription job that only
+    this runner can claim (the file never leaves its machine)."""
+    status, data = await run_in_threadpool(_register_local, runner, body)
+    return JSONResponse(data, status_code=status)
 
 
 class TranslatedLine(BaseModel):

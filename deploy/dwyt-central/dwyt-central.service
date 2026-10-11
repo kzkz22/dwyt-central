@@ -21,6 +21,8 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
+# staged browser uploads (STAGING_DIR)
+ReadWritePaths=/var/lib/dwyt
 
 [Install]
 WantedBy=multi-user.target

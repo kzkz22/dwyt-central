@@ -39,6 +39,19 @@ Egyszeri lépések, a fenti frissítés **előtt**:
 4. A már meglévő elemeket a migráció magától indexelésre teszi; a `dwyt-central-cli check` mutatja, hány vár még.
 5. A futtatókat is frissíteni kell (a fordítás új munkafajta): `uv tool install --force git+https://github.com/kzkz22/dwyt-runner`, majd a futtató újraindítása. A régebbi futtató nem kap fordítást; a Munkák oldal jelzi, ha egy munkát egyik futtató sem tud elvégezni.
 
+## Frissítés a 3b részre (saját felvételek, kvóták)
+
+1. A fenti frissítés; a szolgáltatásfájlt is másold át (a feltöltések miatt írhatja a `/var/lib/dwyt` mappát), majd `systemctl daemon-reload`.
+2. Az Apache-gépen a `dwyt.conf` vhostba kerüljön be a feltöltések korlátja (a repó `deploy/apache/dwyt.conf` mintája szerint), majd `apache2ctl configtest && systemctl reload apache2`:
+
+   ```
+   <Location /feltoltes>
+       LimitRequestBody 2147483647
+   </Location>
+   ```
+3. A futtatókat frissítsd a 0.4.0-s változatra (`uv tool install --force git+https://github.com/kzkz22/dwyt-runner`), és indítsd újra őket. A régebbi futtató nem kap feltöltött fájlt.
+4. Ha kell, a figyelt mappát a futtatón: `dwyt-runner config set watch_dirs "MAPPA"`, majd újraindítás.
+
 ## Protokollváltás
 
 Ha egy frissítés új protokollverziót hoz, a központ az előzőt is elfogadja egy ideig; a túl régi futtató a Futtatók oldalon „régi protokoll” jelzést kap, és a futtató maga is kiírja: `uv tool upgrade dwyt-runner`.

@@ -15,8 +15,8 @@ from typing import Any
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session as DbSession
 
-from . import indexing, sources
-from .config import Settings
+from . import indexing, ownfiles, sources
+from .config import Settings, get_settings
 from .db import utcnow
 from .models import (Item, ItemSummary, ItemTranscript, ItemTranslation, Job, Runner, Segment, Source, Summary,
                      Transcript, Translation, TranslationSegment, User)
@@ -52,12 +52,18 @@ def recipe_hash(data: dict[str, Any]) -> str:
 # ---- enqueueing (user session) ------------------------------------------------------------
 
 def enqueue_transcription(s: DbSession, user_id: int, item: Item, source: Source, options: dict[str, Any],
-                          summarize: bool) -> Job:
-    payload = {"source": {"kind": source.kind, "url": source.url,
-                          "video_id": source.key.split(":", 1)[1] if source.kind == "youtube" else None},
-               "options": options, "summarize": summarize}
+                          summarize: bool, file: dict[str, Any] | None = None) -> Job:
+    """file: for own recordings {"kind": "upload"|"local", "sha256", "name", "size", ...}."""
+    if file is not None:
+        src = dict(file)
+        title = file.get("name")
+    else:
+        src = {"kind": source.kind, "url": source.url,
+               "video_id": source.key.split(":", 1)[1] if source.kind == "youtube" else None}
+        title = (source.meta or {}).get("title") or source.url
+    payload = {"source": src, "options": options, "summarize": summarize}
     job = Job(user_id=user_id, item_id=item.id, kind="transcribe", state="queued", stage="queued",
-              title=(source.meta or {}).get("title") or source.url, payload=payload, progress={})
+              title=title, payload=payload, progress={})
     s.add(job)
     s.flush()
     return job
@@ -104,18 +110,25 @@ def retry(s: DbSession, job: Job) -> None:
 
 # ---- claiming (system session, limited to the runner's user) -------------------------------
 
-def fits(job: Job, caps: dict[str, Any]) -> bool:
+def fits(job: Job, caps: dict[str, Any], runner_id: int | None = None) -> bool:
     if job.kind not in (caps.get("kinds") or []):
         return False
     if job.kind == "transcribe":
         options = job.payload.get("options") or {}
+        src = job.payload.get("source") or {}
+        if src.get("kind") in ("upload", "local"):
+            if src["kind"] not in (caps.get("source_kinds") or []):
+                return False
+            if src["kind"] == "local" and src.get("runner_id") != runner_id:
+                return False  # the file is on the runner that registered it
         mode = options.get("mode")
         if mode not in (caps.get("transcribe_modes") or []):
             return False
         if mode == "local" and options.get("model") not in (caps.get("whisper_models") or []):
             return False
-        url = (job.payload.get("source") or {}).get("url") or ""
-        return sources.domain_allowed(url, caps.get("allowed_domains"))
+        if src.get("kind") in ("upload", "local"):
+            return True
+        return sources.domain_allowed(src.get("url") or "", caps.get("allowed_domains"))
     if job.kind in ("summarize", "translate"):
         return job.payload.get("role") in (caps.get("llm_roles") or [])
     return False
@@ -144,7 +157,7 @@ def claim(s: DbSession, runner: Runner, caps: dict[str, Any], settings: Settings
         Job.user_id == runner.user_id, Job.state == "queued", Job.run_after <= now,
         Job.cancel_requested.is_(False), Job.kind.in_(caps.get("kinds") or []))
         .order_by(Job.id).limit(50).with_for_update(skip_locked=True)).all()
-    job = next((j for j in candidates if fits(j, caps)), None)
+    job = next((j for j in candidates if fits(j, caps, runner.id)), None)
     if job is None:
         return None
     job.state, job.stage, job.runner_id = "running", "starting", runner.id
@@ -158,7 +171,12 @@ def claim(s: DbSession, runner: Runner, caps: dict[str, Any], settings: Settings
 def job_input(s: DbSession, job: Job) -> dict[str, Any]:
     """What the runner gets for a claimed job."""
     if job.kind == "transcribe":
-        return {"source": job.payload["source"], "options": job.payload["options"]}
+        src = dict(job.payload["source"])
+        if src.get("kind") == "upload":
+            src["media"] = f"/runner/v1/jobs/{job.id}/media"
+        src.pop("upload_id", None)
+        src.pop("runner_id", None)
+        return {"source": src, "options": job.payload["options"]}
     t = s.get(Transcript, job.payload["transcript_id"])
     if t is None:
         raise ProtocolError(410, "transcript gone")
@@ -219,7 +237,9 @@ def fail(s: DbSession, runner: Runner, job_id: int, error: str, retry_mode: str,
 
 def _meta_update(src: Source, video: dict[str, Any]) -> None:
     meta = dict(src.meta or {})
-    for key in ("title", "channel", "duration_s", "published", "thumbnail"):
+    # own recordings: the shared source keeps no name (several users may have the same file)
+    keys = ("duration_s",) if src.kind == "upload" else ("title", "channel", "duration_s", "published", "thumbnail")
+    for key in keys:
         if video.get(key) not in (None, ""):
             meta[key] = video[key]
     src.meta, src.updated_at = meta, utcnow()
@@ -238,7 +258,7 @@ def store_transcription(s: DbSession, runner: Runner, job: Job, result: dict[str
                    mode=tr["mode"], model=tr.get("model"), caption_kind=tr.get("caption_kind"),
                    language=tr.get("language"), diarized=bool(tr.get("diarized")),
                    speakers=tr.get("speakers") or [], warnings=tr.get("warnings") or [], cloud=tr.get("cloud"),
-                   options=options, private=not item.is_public, shareable=item.is_public,
+                   options=options, private=not item.is_public, shareable=item.is_public and src.kind != "upload",
                    origin_user_id=job.user_id, runner_version=runner.version, elapsed_s=tr.get("elapsed_s"),
                    segment_count=len(segments))
     s.add(t)
@@ -253,6 +273,9 @@ def store_transcription(s: DbSession, runner: Runner, job: Job, result: dict[str
             item.current_summary_id = None
     item.updated_at = utcnow()
     _finish(job, {"transcript_id": t.id})
+    file = job.payload.get("source") or {}
+    if file.get("kind") == "upload" and file.get("upload_id"):
+        ownfiles.consume(s, get_settings(), int(file["upload_id"]))
     if item.main_transcript_id == t.id:
         after_main_transcript(s, job.user_id, item, t, bool(job.payload.get("summarize")))
     return t

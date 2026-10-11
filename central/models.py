@@ -34,6 +34,8 @@ class User(Base):
     created_at: Mapped[datetime] = _now()
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     translate_auto: Mapped[bool] = mapped_column(Boolean, default=True)
+    quota_storage_mb: Mapped[int | None] = mapped_column(Integer)
+    quota_upload_mb: Mapped[int | None] = mapped_column(Integer)
 
 
 class Invite(Base):
@@ -250,6 +252,18 @@ class IndexQueue(Base):
     run_after: Mapped[datetime] = _now()
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     error: Mapped[str | None] = mapped_column(Text)
+
+
+class Upload(Base):
+    __tablename__ = "uploads"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    sha256: Mapped[str] = mapped_column(Text)
+    name: Mapped[str] = mapped_column(Text)
+    size: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = _now()
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 JOB_STATES = ("queued", "running", "done", "failed", "cancelled")

@@ -124,6 +124,8 @@ A `check` elvárt kimenete: „sorvédelem: bekapcsolva”, „alkalmazás-szere
 
 Próba a belső hálózatról, az Apache nélkül: `http://DWYT-IP:8000/admin-belepes` (jelszó + kód). Ehhez a `.env`-ben átmenetileg `COOKIE_SECURE=false` kell, mert HTTP-n a böngésző nem küldi vissza a `Secure` sütit.
 
+A böngészős feltöltések a `/var/lib/dwyt/staging` mappába kerülnek (`STAGING_DIR`), és csak addig maradnak ott, amíg a futtató le nem töltötte őket (legfeljebb 7 napig). Ehhez a lemezen legyen hely: legalább a legnagyobb feltöltés kétszerese.
+
 ### A beágyazó szolgáltatás (a jelentés szerinti kereséshez)
 
 A `bge-m3` modell a CPU-n fut, külön szolgáltatásként (`dwyt-central-embed`, csak a `127.0.0.1:8001` címen). Nélküle is működik a szöveges keresés; a `central.env`-ben ekkor `EMBED_URL=` (üres).

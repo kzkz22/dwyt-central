@@ -1,5 +1,12 @@
 {% extends "base.html" %}
-{% block title %}Beállítások{% endblock %}
+{% block title %}Beállítások<section class="card">
+  <h2>Keretek</h2>
+  <p>Tárhely (szöveg és keresési vektorok): <strong>{{ usage.used_mb|round(1) }} MB</strong> / {{ usage.quota_mb|round(0)|int }} MB</p>
+  <progress max="{{ usage.quota_mb }}" value="{{ [usage.used_mb, usage.quota_mb]|min }}"></progress>
+  <p>Feltöltés: fájlonként legfeljebb {{ usage.upload_mb }} MB; feldolgozásra vár {{ usage.pending }} / {{ usage.pending_max }}.</p>
+  <p class="muted">Hang és videó nem tárolódik: a feltöltött fájl csak addig van a központon, amíg a futtatód átveszi. A keretet az admin módosíthatja.</p>
+</section>
+{% endblock %}
 {% block content %}
 <h1>Beállítások</h1>
 {% if saved %}<p class="notice" role="status">Mentve.</p>{% endif %}
@@ -9,4 +16,11 @@
   <p class="muted">Ha ki van kapcsolva, a fordítás csak az elem oldalán, kérésre indul. A fordítást a futtatód végzi a saját LLM-jével; felhős modellnél ez költséggel jár.</p>
   <p><button>Mentés</button></p>
 </form>
+<section class="card">
+  <h2>Keretek</h2>
+  <p>Tárhely (szöveg és keresési vektorok): <strong>{{ usage.used_mb|round(1) }} MB</strong> / {{ usage.quota_mb|round(0)|int }} MB</p>
+  <progress max="{{ usage.quota_mb }}" value="{{ [usage.used_mb, usage.quota_mb]|min }}"></progress>
+  <p>Feltöltés: fájlonként legfeljebb {{ usage.upload_mb }} MB; feldolgozásra vár {{ usage.pending }} / {{ usage.pending_max }}.</p>
+  <p class="muted">Hang és videó nem tárolódik: a feltöltött fájl csak addig van a központon, amíg a futtatód átveszi. A keretet az admin módosíthatja.</p>
+</section>
 {% endblock %}

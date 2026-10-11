@@ -139,7 +139,7 @@ def build(s: DbSession, item: Item) -> None:
     """Make sure the chunks of the item's current results exist (shared; built once)."""
     src = s.get(Source, item.source_id)
     own = src.kind == "upload"  # file names of own recordings are not shared
-    meta = Piece(kind="meta", seq=0, text=meta_text(src))
+    meta = Piece(kind="meta", seq=0, text=(item.title or "saját felvétel") if own else meta_text(src))
     cond = "source_id = :sid AND kind = 'meta' AND " + ("item_id = :iid" if own else "item_id IS NULL")
     params = {"sid": src.id, "iid": item.id}
     current = s.execute(text(f"SELECT text_hash FROM chunks WHERE {cond}"), params).scalars().all()
@@ -289,6 +289,8 @@ class Indexer(threading.Thread):
             try:
                 if time.monotonic() - self._last_housekeeping > HOUSEKEEPING_S:
                     housekeeping()
+                    from . import ownfiles
+                    ownfiles.housekeeping(get_settings())
                     self._last_housekeeping = time.monotonic()
                 item_id = next_item()
                 if item_id is None:
