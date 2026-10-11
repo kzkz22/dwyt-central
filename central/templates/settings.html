@@ -1,21 +1,60 @@
 {% extends "base.html" %}
-{% block title %}Beállítások<section class="card">
-  <h2>Keretek</h2>
-  <p>Tárhely (szöveg és keresési vektorok): <strong>{{ usage.used_mb|round(1) }} MB</strong> / {{ usage.quota_mb|round(0)|int }} MB</p>
-  <progress max="{{ usage.quota_mb }}" value="{{ [usage.used_mb, usage.quota_mb]|min }}"></progress>
-  <p>Feltöltés: fájlonként legfeljebb {{ usage.upload_mb }} MB; feldolgozásra vár {{ usage.pending }} / {{ usage.pending_max }}.</p>
-  <p class="muted">Hang és videó nem tárolódik: a feltöltött fájl csak addig van a központon, amíg a futtatód átveszi. A keretet az admin módosíthatja.</p>
-</section>
-{% endblock %}
+{% block title %}Beállítások{% endblock %}
 {% block content %}
 <h1>Beállítások</h1>
 {% if saved %}<p class="notice" role="status">Mentve.</p>{% endif %}
+{% if message %}<p class="{{ 'error' if message_error else 'warn-box' }}" role="status">{{ message }}</p>{% endif %}
 <form method="post" action="/beallitasok" class="card">
   <input type="hidden" name="csrf_token" value="{{ csrf }}">
   <label class="choice"><input type="checkbox" name="translate_auto" {% if translate_auto %}checked{% endif %}> Nem magyar átirat magyar fordítása magától</label>
   <p class="muted">Ha ki van kapcsolva, a fordítás csak az elem oldalán, kérésre indul. A fordítást a futtatód végzi a saját LLM-jével; felhős modellnél ez költséggel jár.</p>
   <p><button>Mentés</button></p>
 </form>
+
+<section class="card" id="ertesites">
+  <h2>Értesítések</h2>
+  <form method="post" action="/beallitasok/ertesites" class="stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <fieldset><legend>Csatorna</legend>
+    {% for key, label in channels.items() %}
+      <label class="choice"><input type="radio" name="channel" value="{{ key }}" {% if note_cfg.channel == key %}checked{% endif %}> {{ label }}</label>
+    {% endfor %}
+    </fieldset>
+    <details {% if note_cfg.channel == 'ntfy' %}open{% endif %}>
+      <summary>ntfy</summary>
+      <p class="muted">Telepítsd az ntfy alkalmazást (Android, iPhone), és iratkozz fel benne ugyanerre a témára. A téma neve a jelszó: aki ismeri, olvashatja az értesítéseidet, ezért hagyd meg a javasoltat.</p>
+      <div class="grid">
+        <label>Szerver <input name="ntfy_server" value="{{ note_cfg.ntfy_server or 'https://ntfy.sh' }}"></label>
+        <label>Téma <input name="ntfy_topic" value="{{ note_cfg.ntfy_topic or suggested_topic }}" maxlength="64"></label>
+        <label>Hozzáférési token (saját szervernél, ha kell) <input name="ntfy_token" type="password" autocomplete="off" placeholder="{{ 'megadva; üresen marad' if note_cfg.ntfy_token_enc else '' }}"></label>
+      </div>
+      {% if note_cfg.ntfy_token_enc %}<label class="choice"><input type="checkbox" name="ntfy_token_clear"> token törlése</label>{% endif %}
+    </details>
+    <details {% if note_cfg.channel == 'ha' %}open{% endif %}>
+      <summary>Home Assistant</summary>
+      <p class="muted">A Home Assistant <code>notify.&lt;szolgáltatás&gt;</code> hívásával, a telefonos alkalmazásba (koppintásra megnyílik az elem). Token: a Home Assistantben Profil → Biztonság → Hosszú élettartamú hozzáférési tokenek.</p>
+      <div class="grid">
+        <label>Cím <input name="ha_url" value="{{ note_cfg.ha_url or '' }}" placeholder="https://ha.example.hu"></label>
+        <label>Szolgáltatás <input name="ha_service" value="{{ note_cfg.ha_service or '' }}" placeholder="mobile_app_telefon"></label>
+        <label>Token <input name="ha_token" type="password" autocomplete="off" placeholder="{{ 'megadva; üresen marad' if note_cfg.ha_token_enc else '' }}"></label>
+      </div>
+    </details>
+    <div class="grid">
+      <label>Napi összesítő ideje <input name="digest_time" value="{{ note_cfg.digest_time }}" maxlength="5" placeholder="19:00"></label>
+    </div>
+    <label class="choice"><input type="checkbox" name="on_manual" {% if note_cfg.on_manual %}checked{% endif %}> Értesítés a kézzel beküldött munkák elkészültéről</label>
+    <label class="choice"><input type="checkbox" name="on_error" {% if note_cfg.on_error %}checked{% endif %}> Értesítés hibáról</label>
+    <p class="muted">A feliratkozásos videókról csatornánként állíthatod (<a href="/csatornak">Csatornák</a>): napi összesítő, azonnal vagy semmi.</p>
+    <p><button>Mentés</button></p>
+  </form>
+  {% if note_cfg.channel != 'none' %}
+  <form method="post" action="/beallitasok/ertesites/proba" class="inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="secondary small">Próbaértesítés</button>
+  </form>
+  {% endif %}
+  {% if last_note %}<p class="muted">Utolsó: {{ last_note.title }} · {{ last_note.created_at|local }} · {% if last_note.sent_at %}{{ last_note.error or 'elküldve' }}{% elif last_note.digest %}az összesítőben megy{% else %}<span class="error-text">{{ last_note.error or 'küldésre vár' }}</span>{% endif %}</p>{% endif %}
+</section>
+
 <section class="card">
   <h2>Keretek</h2>
   <p>Tárhely (szöveg és keresési vektorok): <strong>{{ usage.used_mb|round(1) }} MB</strong> / {{ usage.quota_mb|round(0)|int }} MB</p>

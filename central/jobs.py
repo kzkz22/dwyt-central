@@ -15,7 +15,7 @@ from typing import Any
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session as DbSession
 
-from . import indexing, ownfiles, sources
+from . import indexing, notify, ownfiles, sources
 from .config import Settings, get_settings
 from .db import utcnow
 from .models import (Item, ItemSummary, ItemTranscript, ItemTranslation, Job, Runner, Segment, Source, Summary,
@@ -165,6 +165,7 @@ def requeue_expired(s: DbSession, user_id: int, settings: Settings) -> None:
         elif job.attempts >= settings.job_max_attempts:
             job.state, job.finished_at = "failed", now
             job.error = "A futtató nem jelentkezett a munkával; a próbálkozások elfogytak."
+            notify.job_failed(s, job)
         else:
             job.state, job.stage, job.runner_id, job.lease_until = "queued", "queued", None, None
             job.error = "A futtató nem jelentkezett; a munka visszakerült a sorba."
@@ -257,6 +258,7 @@ def fail(s: DbSession, runner: Runner, job_id: int, error: str, retry_mode: str,
         job.state, job.stage, job.run_after = "queued", "queued", now + timedelta(minutes=delay)
     else:
         job.state, job.finished_at = "failed", now
+        notify.job_failed(s, job)
 
 
 # ---- results ------------------------------------------------------------------------------
@@ -304,6 +306,8 @@ def store_transcription(s: DbSession, runner: Runner, job: Job, result: dict[str
         ownfiles.consume(s, get_settings(), int(file["upload_id"]))
     if item.main_transcript_id == t.id:
         after_main_transcript(s, job.user_id, item, t, bool(job.payload.get("summarize")))
+        if not job.payload.get("summarize"):
+            notify.item_done(s, item)
     return t
 
 
@@ -342,6 +346,8 @@ def store_summary(s: DbSession, runner: Runner, job: Job, result: dict[str, Any]
     if item.main_transcript_id == tid:
         item.current_summary_id = summary.id
         indexing.enqueue(s, item)
+        s.flush()
+        notify.item_done(s, item)
     item.updated_at = utcnow()
     _finish(job, {"summary_id": summary.id})
     return summary

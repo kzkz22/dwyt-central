@@ -17,11 +17,11 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from fakes import FakeEmbed, FakeGoogle, FakeYoutube  # noqa: E402
+from fakes import FakeEmbed, FakeGoogle, FakeNotify, FakeYoutube  # noqa: E402
 from pgcluster import Cluster  # noqa: E402
 
 PROTO = {"Dwyt-Protocol": "1"}
-TABLES = ("youtube_links, inbox_entries, subscriptions, channel_videos, channels, "
+TABLES = ("notifications, notify_settings, youtube_links, inbox_entries, subscriptions, channel_videos, channels, "
           "uploads, index_queue, chunks, item_translations, translation_segments, translations, "
           "jobs, item_summaries, item_transcripts, items, summaries, segments, transcripts, sources, "
           "pair_requests, runners, login_states, sessions, invites, users")
@@ -73,6 +73,24 @@ def fake_youtube():
     y = FakeYoutube().start()
     yield y
     y.stop()
+
+
+@pytest.fixture(scope="session")
+def fake_notify_server():
+    n = FakeNotify().start()
+    yield n
+    n.stop()
+
+
+@pytest.fixture
+def fake_notify(fake_notify_server, monkeypatch):
+    """The fake listens on 127.0.0.1: allowed as a private network for these tests only."""
+    from central.config import get_settings
+    monkeypatch.setenv("NOTIFY_PRIVATE_NETS", "127.0.0.0/8")
+    get_settings.cache_clear()
+    fake_notify_server.reset()
+    yield fake_notify_server
+    get_settings.cache_clear()
 
 
 @pytest.fixture(scope="session")

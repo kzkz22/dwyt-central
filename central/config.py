@@ -66,6 +66,9 @@ class Settings:
     # a subscription video without captions waits this long for the user's GPU (local Whisper)
     # before the next step of its chain (cloud, if the channel allows it)
     gpu_wait_h: float = field(default_factory=lambda: float(_env("GPU_WAIT_H", "72")))
+    # Notifications (round 4b): user-given ntfy / Home Assistant addresses may point into these
+    # private networks (comma-separated CIDRs, e.g. 192.168.1.0/24); admins may always use them
+    notify_private_nets: str = field(default_factory=lambda: _env("NOTIFY_PRIVATE_NETS"))
     youtube_url: str = field(default_factory=lambda: _env("YOUTUBE_URL", "https://www.youtube.com").rstrip("/"))
     google_api_url: str = field(default_factory=lambda: _env(
         "GOOGLE_API_URL", "https://www.googleapis.com").rstrip("/"))

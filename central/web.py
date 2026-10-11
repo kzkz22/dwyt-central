@@ -28,7 +28,7 @@ from sqlalchemy.dialects.postgresql import insert
 from starlette.concurrency import run_in_threadpool
 
 from . import (accounts, db, indexing, items, jobs, library, ownfiles, protocol, ratelimit, render, reuse, search,
-               secretbox, security, sources, subscriptions, youtube)
+               notify, secretbox, security, sources, subscriptions, youtube)
 from .config import Settings, get_settings
 from .db import utcnow
 from .models import (ACTIVE, Channel, InboxEntry, Invite, Item, ItemSummary, ItemTranscript, ItemTranslation, Job,
@@ -1032,12 +1032,19 @@ def _usage(viewer: Viewer) -> dict[str, Any]:
             "upload_mb": lim.upload_bytes // 1024 ** 2, "pending": pending, "pending_max": lim.pending}
 
 
+def _settings_page(request: Request, viewer: Viewer, saved: bool = False, message: str | None = None,
+                   error: bool = False, status: int = 200):
+    with db.system_session() as s:
+        translate_auto = s.get(User, viewer.id).translate_auto
+    return _render(request, "settings.html", viewer, status_code=status, translate_auto=translate_auto, saved=saved,
+                   usage=_usage(viewer), message=message, message_error=error, note_cfg=notify.get(viewer.id),
+                   channels=notify.CHANNELS, last_note=notify.last(viewer.id),
+                   suggested_topic="dwyt-" + secrets.token_urlsafe(12).replace("_", "x").replace("-", "y"))
+
+
 @app.get("/beallitasok", response_class=HTMLResponse)
 def settings_page(request: Request, viewer: Viewer = Depends(current_viewer)):
-    with db.system_session() as s:
-        user = s.get(User, viewer.id)
-        translate_auto = user.translate_auto
-    return _render(request, "settings.html", viewer, translate_auto=translate_auto, saved=False, usage=_usage(viewer))
+    return _settings_page(request, viewer)
 
 
 @app.post("/beallitasok")
@@ -1049,7 +1056,24 @@ async def save_settings(request: Request, viewer: Viewer = Depends(authed_post))
         with db.system_session() as s:  # the users table is the system's; only the viewer's own row
             s.get(User, viewer.id).translate_auto = value
     await run_in_threadpool(save)
-    return _render(request, "settings.html", viewer, translate_auto=value, saved=True, usage=_usage(viewer))
+    return await run_in_threadpool(_settings_page, request, viewer, True)
+
+
+@app.post("/beallitasok/ertesites")
+async def save_notifications(request: Request, viewer: Viewer = Depends(authed_post)):
+    form = {k: str(v) for k, v in (await request.form()).items()}
+    try:
+        await run_in_threadpool(notify.save, viewer.id, viewer.is_admin, form)
+    except (notify.NotifyError, secretbox.NoKey) as exc:
+        return await run_in_threadpool(_settings_page, request, viewer, False, str(exc), True, 422)
+    return await run_in_threadpool(_settings_page, request, viewer, True)
+
+
+@app.post("/beallitasok/ertesites/proba")
+async def test_notification(request: Request, viewer: Viewer = Depends(authed_post)):
+    error = await run_in_threadpool(notify.test, viewer.id)
+    message = f"A próbaértesítés nem ment el: {error}" if error else "A próbaértesítés elment."
+    return await run_in_threadpool(_settings_page, request, viewer, False, message, bool(error))
 
 
 # ---- search -------------------------------------------------------------------------------

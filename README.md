@@ -18,9 +18,10 @@ Az 1–3. kör kész (a 3c résszel együtt):
 - kész eredmények átvétele (ha valaki már átíratta ugyanazt), kvóták;
 - elemoldal: összefoglaló-változatok (választható aktuális, Markdown-letöltés), több átirat (fő átirat választása, törlés, újraírás más beállítással), letöltés TXT-ben és SRT-ben eredetiben és magyarul, választható modell, a hosszú munkák haladása;
 - könyvtár szűréssel és összefoglaló-előnézettel; a hiányzó összefoglalók, fordítások és az index pótlása egy gombbal;
-- YouTube-feliratkozások (a YouTube-fiókból, Takeout-fájlból vagy kézzel), csatornánkénti szabály, postaláda; a feliratkozásos videók láncolata: felirat → helyi Whisper → felhő, ha engedélyezett (4a).
+- YouTube-feliratkozások (a YouTube-fiókból, Takeout-fájlból vagy kézzel), csatornánkénti szabály, postaláda; a feliratkozásos videók láncolata: felirat → helyi Whisper → felhő, ha engedélyezett (4a).;
+- értesítés ntfy-jal vagy Home Assistanttel: kész munka, hiba, a feliratkozásokról napi összesítő vagy csatornánként azonnal (4b).
 
-Következik: értesítés (ntfy, Home Assistant) és MCP.
+Következik: MCP.
 
 ## Fejlesztés
 

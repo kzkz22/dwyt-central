@@ -58,6 +58,12 @@ Egyszeri lépések, a fenti frissítés **előtt**:
 2. Ha a felhasználók a YouTube-fiókjukból is behúzhatják a feliratkozásaikat: a [telepites.md](telepites.md) „YouTube-feliratkozások” része (YouTube Data API bekapcsolása, a `youtube.readonly` jogosultság, `TOKEN_KEY`), majd `systemctl restart dwyt-central`.
 3. A futtatókat nem kell frissíteni. A feliratkozásos videók láncolata (felirat → helyi Whisper → felhő, ha a csatornán engedélyezett) a meglévő futtatókkal működik.
 
+## Frissítés a 4b részre (értesítések)
+
+1. A fenti frissítés (az adatbázis-migráció magától lefut). A tokenek titkosításához itt is a `TOKEN_KEY` kell (a 4a résznél került be).
+2. Az értesítést mindenki maga állítja be a Beállítások oldalon: **ntfy** (telefonos alkalmazás, alapból az `ntfy.sh` szerverrel) vagy **Home Assistant** (cím, `notify` szolgáltatás, hosszú élettartamú token).
+3. A felhasználók által megadott címek nem mutathatnak belső hálózatra (így a központ nem használható a belső gépek elérésére). Az admin a saját belső Home Assistantjét enélkül is megadhatja; ha más felhasználónak is engedni kell egy belső hálózatot, a `central.env`-be: `NOTIFY_PRIVATE_NETS=192.168.1.0/24`, majd `systemctl restart dwyt-central`.
+
 ## Protokollváltás
 
 Ha egy frissítés új protokollverziót hoz, a központ az előzőt is elfogadja egy ideig; a túl régi futtató a Futtatók oldalon „régi protokoll” jelzést kap, és a futtató maga is kiírja: `uv tool upgrade dwyt-runner`.

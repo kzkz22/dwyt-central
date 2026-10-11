@@ -383,7 +383,7 @@ def gpu_waiting(s: DbSession) -> int:
 # ---- background ---------------------------------------------------------------------------
 
 class Background(threading.Thread):
-    """Inside the web service: feeds, the daily YouTube list sync, inbox states."""
+    """Inside the web service: feeds, the daily YouTube list sync, inbox states, notifications."""
 
     def __init__(self) -> None:
         super().__init__(daemon=True, name="subscriptions")
@@ -398,6 +398,9 @@ class Background(threading.Thread):
             sync_due(settings)
         with db.system_session() as s:
             sync_inbox(s)
+        from . import notify
+        notify.make_digests(settings)
+        notify.send_pending()
 
     def run(self) -> None:
         log.info("subscriptions started")

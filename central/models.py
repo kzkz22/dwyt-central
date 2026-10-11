@@ -2,10 +2,10 @@
 migrations/; keep both in step."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, Text, func
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, Float, ForeignKey, Integer, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -216,6 +216,7 @@ class Item(Base):
     current_translation_id: Mapped[int | None] = mapped_column(ForeignKey("translations.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = _now()
     updated_at: Mapped[datetime] = _now()
+    notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     source: Mapped[Source] = relationship(lazy="joined")
 
 
@@ -359,3 +360,38 @@ class YoutubeLink(Base):
     synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     sync_error: Mapped[str | None] = mapped_column(Text)
     sync_count: Mapped[int | None] = mapped_column(Integer)
+
+
+# ---- notifications (round 4b) ---------------------------------------------------------------
+
+class NotifySettings(Base):
+    __tablename__ = "notify_settings"
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    channel: Mapped[str] = mapped_column(Text, default="none")  # none | ntfy | ha
+    ntfy_server: Mapped[str | None] = mapped_column(Text)
+    ntfy_topic: Mapped[str | None] = mapped_column(Text)
+    ntfy_token_enc: Mapped[str | None] = mapped_column(Text)
+    ha_url: Mapped[str | None] = mapped_column(Text)
+    ha_token_enc: Mapped[str | None] = mapped_column(Text)
+    ha_service: Mapped[str | None] = mapped_column(Text)
+    digest_time: Mapped[str] = mapped_column(Text, default="19:00")
+    on_manual: Mapped[bool] = mapped_column(Boolean, default=True)
+    on_error: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_digest_on: Mapped[date | None] = mapped_column(Date)
+    updated_at: Mapped[datetime] = _now()
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    kind: Mapped[str] = mapped_column(Text)  # done | error | digest | test
+    digest: Mapped[bool] = mapped_column(Boolean, default=False)
+    item_id: Mapped[int | None] = mapped_column(ForeignKey("items.id", ondelete="SET NULL"))
+    title: Mapped[str] = mapped_column(Text)
+    message: Mapped[str] = mapped_column(Text)
+    url: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = _now()
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    error: Mapped[str | None] = mapped_column(Text)

@@ -204,3 +204,39 @@ class FakeYoutube:
 
     start = FakeGoogle.start
     stop = FakeGoogle.stop
+
+
+class FakeNotify:
+    """ntfy (JSON publish at the root) and Home Assistant (notify services) in one fake."""
+
+    def __init__(self) -> None:
+        self.port = free_port()
+        self.url = f"http://127.0.0.1:{self.port}"
+        self.reset()
+        app = FastAPI()
+        fake = self
+
+        @app.post("/")
+        async def ntfy(request: Request):
+            if fake.fail:
+                return JSONResponse({"error": "down"}, status_code=503)
+            fake.ntfy.append({"body": await request.json(), "auth": request.headers.get("authorization")})
+            return {"id": "x"}
+
+        @app.post("/api/services/notify/{service}")
+        async def ha(service: str, request: Request):
+            if request.headers.get("authorization") != "Bearer ha-token":
+                return JSONResponse({"message": "unauthorized"}, status_code=401)
+            fake.ha.append({"service": service, "body": await request.json()})
+            return []
+
+        self.app = app
+        self._server: uvicorn.Server | None = None
+
+    def reset(self) -> None:
+        self.ntfy: list[dict] = []
+        self.ha: list[dict] = []
+        self.fail = False
+
+    start = FakeGoogle.start
+    stop = FakeGoogle.stop

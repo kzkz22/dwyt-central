@@ -16,7 +16,9 @@ LLM models chosen from the runners' `llm_models` capability, job progress on the
 results dropped by `indexing.drop_unreferenced_results`); 4a: `subscriptions.py` (shared channels/feed videos,
 per-user subscriptions + inbox, fan-out, the captions → local → cloud chain via `chain_step` in `jobs.fail`,
 `Background` thread), `youtube.py` (RSS, Shorts, handles, Takeout, Web OAuth youtube.readonly), `secretbox.py`
-(TOKEN_KEY Fernet for refresh tokens). Next: 4b notifications (ntfy, Home Assistant), 4c MCP.
+(TOKEN_KEY Fernet for refresh tokens); 4b: `notify.py` (per-user ntfy / Home Assistant, secrets sealed, outbox +
+retries + daily digest in the `Background` thread, user URLs never private unless NOTIFY_PRIVATE_NETS or admin).
+Next: 4c MCP.
 Source of truth: `dwyt-docs` (`docs/terv.md`, `docs/protokoll.md`). Install: `docs/telepites.md`; tests need PostgreSQL
 (throw-away cluster from tests/pgcluster.py, or TEST_DATABASE_URL as superuser).
 License: AGPL-3.0.
