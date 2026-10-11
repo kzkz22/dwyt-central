@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
 {% block title %}Csatornák{% endblock %}
 {% block content %}
 <div class="bar">
@@ -9,6 +10,7 @@
 </div>
 {% if message %}<p class="{{ 'error' if message_error else 'warn-box' }}" role="status">{{ message }}</p>{% endif %}
 
+<div class="two-cards">
 <section class="card" id="youtube">
   <h2>Feliratkozások a YouTube-fiókodból</h2>
   {% if not google_ready %}
@@ -45,31 +47,37 @@
     <button class="secondary small">Betöltés</button>
   </form>
 </section>
+</div>
 
 <section>
-  <h2>Követett csatornák ({{ subs|length }})</h2>
-  <p class="muted">Szabály: <strong>mindig</strong> = minden új videóhoz magától készül átirat és összefoglaló; <strong>kérdezzen</strong> = a postaládába kerül; <strong>soha</strong> = nem figyeli. Átírás: YouTube-felirat → ha nincs, helyi Whisper (megvárja a GPU-gépet) → felhő csak bepipálva. A hírcsatornákat {{ poll_min }} percenként nézi meg. A Shorts videók külön fülre kerülnek.</p>
-  {% if not subs %}<p class="card">Még nem követsz csatornát.</p>{% endif %}
-  <ul class="items">
+  <div class="bar"><h2>Követett csatornák ({{ subs|length }})</h2></div>
+  <details class="help">
+    <summary>{{ icon("info", 15) }}Hogyan működnek a szabályok?</summary>
+    <p class="muted"><strong>mindig</strong> = minden új videóhoz magától készül átirat és összefoglaló; <strong>kérdezzen</strong> = a postaládába kerül; <strong>soha</strong> = nem figyeli. Átírás: YouTube-felirat → ha nincs, helyi Whisper (megvárja a GPU-gépet) → felhő csak bepipálva. A hírcsatornákat {{ poll_min }} percenként nézi meg. A Shorts videók külön fülre kerülnek.</p>
+  </details>
+  {% if not subs %}<p class="card">Még nem követsz csatornát.</p>{% else %}
+  <ul class="items channels-list">
   {% for sub in subs %}
     <li class="item channel{{ ' inactive' if not sub.active }}" id="c{{ sub.id }}">
-      <div>
+      <span class="avatar ch-avatar" aria-hidden="true">{{ ((sub.channel.title or '?')[:1])|upper }}</span>
+      <div class="ch-main">
         <a href="https://www.youtube.com/channel/{{ sub.channel_id }}" target="_blank" rel="noreferrer noopener" class="title">{{ sub.channel.title or sub.channel_id }}</a>
         <div class="meta">{{ sources[sub.source] }}{% if not sub.active %} · már nem vagy feliratkozva{% endif %}{% if new_counts.get(sub.channel_id) %} · <a href="/postalada">{{ new_counts[sub.channel_id] }} új</a>{% endif %}{% if sub.channel.last_checked_at %} · ellenőrizve: {{ sub.channel.last_checked_at|local }}{% endif %}</div>
-        {% if sub.channel.last_error %}<div class="error-text">{{ sub.channel.last_error }}</div>{% endif %}
-        <form method="post" action="/csatornak/{{ sub.id }}/beallitas" class="filters channel-form">
-          <input type="hidden" name="csrf_token" value="{{ csrf }}">
-          <select name="rule" aria-label="Szabály">{% for key, label in rules.items() %}<option value="{{ key }}" {% if sub.rule == key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
-          <select name="notify" aria-label="Értesítés">{% for key, label in notify_options.items() %}<option value="{{ key }}" {% if sub.notify == key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
-          <label class="choice"><input type="checkbox" name="allow_cloud" {% if sub.allow_cloud %}checked{% endif %}> felhős átírás is</label>
-          <button class="secondary small">Mentés</button>
-        </form>
+        {% if sub.channel.last_error %}<div class="error-text meta">{{ sub.channel.last_error }}</div>{% endif %}
       </div>
-      <form method="post" action="/csatornak/{{ sub.id }}/torles" class="inline confirm" data-confirm="Nem követed tovább a csatornát? A még nem kért videói kikerülnek a postaládából, a könyvtár megmarad.">
-        <input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="danger small">Törlés</button>
+      <form method="post" action="/csatornak/{{ sub.id }}/beallitas" class="channel-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+        <select name="rule" aria-label="Szabály: {{ sub.channel.title or sub.channel_id }}">{% for key, label in rules.items() %}<option value="{{ key }}" {% if sub.rule == key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+        <select name="notify" aria-label="Értesítés: {{ sub.channel.title or sub.channel_id }}">{% for key, label in notify_options.items() %}<option value="{{ key }}" {% if sub.notify == key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+        <label class="choice"><input type="checkbox" name="allow_cloud" {% if sub.allow_cloud %}checked{% endif %}> felhő is</label>
+        <button class="secondary small">Mentés</button>
+      </form>
+      <form method="post" action="/csatornak/{{ sub.id }}/torles" class="inline confirm ch-delete" data-confirm="Nem követed tovább a csatornát? A még nem kért videói kikerülnek a postaládából, a könyvtár megmarad.">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="danger small icon-only" aria-label="Törlés: {{ sub.channel.title or sub.channel_id }}" title="Törlés">{{ icon("trash", 15) }}</button>
       </form>
     </li>
   {% endfor %}
   </ul>
+  {% endif %}
 </section>
 {% endblock %}

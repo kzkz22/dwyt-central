@@ -295,7 +295,7 @@ def test_item_page_metadata_and_speaker_settings(alice, anon):
                                      "deleted_at_provider": True}
     anon.put(f"/runner/v1/jobs/{job['job_id']}/result", json=result, headers=runner_headers(token))
     page = alice.get(f"/elem/{item_id}").text
-    assert "hqdefault.jpg" in page and "YouTube" in page and "2025-10-19" in page and "nyelv: en" in page
+    assert "hqdefault.jpg" in page and "YouTube" in page and "2025-10-19" in page and 'Nyelv</span> en<' in page
     assert ">https://www.youtube.com/watch?v=dQw4w9WgXcQ</a>" in page
     assert "2 sor" in page and "1 beszélő" in page and "legalább 2 legfeljebb 4" in page and "$0.01" in page
     for form, error in (({"speakers": "exact"}, "Add meg a beszélők számát"),

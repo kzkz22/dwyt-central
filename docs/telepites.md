@@ -264,7 +264,8 @@ Ellenőrzés: `curl -sI https://dwyt.iodate.date/healthz` → `200`, és a vála
 2. **Admin → Meghívó:** e-mail-cím → a kapott linket küldd el a meghívottnak (7 napig érvényes, egyszer használható).
 3. **Futtatók:** a saját gépeden telepítsd a futtatót ([dwyt-runner](https://github.com/kzkz22/dwyt-runner)), `dwyt-runner pair https://dwyt.iodate.date`, a kiírt kódot írd be itt.
 4. **Új átirat:** egy YouTube-link „YouTube-felirat” móddal; a futtató pár másodpercen belül elkezdi.
-5. Ami ezután mindenkinek a saját felületén van: **Csatornák** (YouTube-feliratkozások), **Postaláda**, **Beállítások** (fordítás, értesítés ntfy-jal vagy Home Assistanttel, kétlépcsős belépés, MCP-tokenek, export, fióktörlés). Az MCP-kliensek beállítása: [mcp.md](mcp.md).
+5. A menü bal oldalt van; asztali gépen a fejlécében lévő gombbal ikonsávvá csukható, mobilon a bal felső gombbal nyílik. A téma a menü alján váltható.
+6. Ami ezután mindenkinek a saját felületén van: **Csatornák** (YouTube-feliratkozások), **Postaláda**, **Beállítások** (fordítás, értesítés ntfy-jal vagy Home Assistanttel, kétlépcsős belépés, MCP-tokenek, export, fióktörlés). Az MCP-kliensek beállítása: [mcp.md](mcp.md).
 
 ## Hibakeresés
 

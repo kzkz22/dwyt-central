@@ -86,6 +86,13 @@ Egyszeri lépések, a fenti frissítés **előtt**:
 2. Ha a meghívók e-mailben menjenek: a `central.env`-be az `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURITY`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` sorok (minta: `deploy/dwyt-central/central.env.example`), majd `systemctl restart dwyt-central`. Nélkülük minden marad a régiben: az admin kimásolja a linket.
 3. Ha mindenkinek kötelező legyen a Google után a hitelesítő alkalmazás kódja: `REQUIRE_TOTP=true`. Aki még nem állította be, a következő belépéskor beállíttatja vele. Alapból mindenki maga kapcsolhatja be a Beállítások oldalon.
 
+## Frissítés az új felületre (0.10)
+
+1. A fenti frissítés; adatbázis-migráció és új beállítás nincs.
+2. A böngészőben semmit nem kell törölni: a stílus és a szkriptek címe a tartalmukkal együtt változik, így a régi példány nem ragad be.
+3. A téma (világos / sötét) és a becsukott menü böngészőnként tárolódik; először a rendszer témáját követi.
+4. Ha az Apache-on saját `Content-Security-Policy` fejlécet állítottál be, abban is maradjon `default-src 'self'` (a betűtípus és az ikonok a központról jönnek, külső címről semmi).
+
 ## Protokollváltás
 
 Ha egy frissítés új protokollverziót hoz, a központ az előzőt is elfogadja egy ideig; a túl régi futtató a Futtatók oldalon „régi protokoll” jelzést kap, és a futtató maga is kiírja: `uv tool upgrade dwyt-runner`.

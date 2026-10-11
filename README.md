@@ -21,7 +21,8 @@ Az 1–5. kör kész:
 - YouTube-feliratkozások (a YouTube-fiókból, Takeout-fájlból vagy kézzel), csatornánkénti szabály, postaláda; a feliratkozásos videók láncolata: felirat → helyi Whisper → felhő, ha engedélyezett (4a).;
 - értesítés ntfy-jal vagy Home Assistanttel: kész munka, hiba, a feliratkozásokról napi összesítő vagy csatornánként azonnal (4b);
 - MCP a `/mcp` címen, felhasználónkénti, visszavonható tokenekkel (4c): [docs/mcp.md](docs/mcp.md);
-- címkék, jegyzet és beszélőnevek az elemeken; a könyvtár exportja (Markdown vagy JSON); fióktörlés a felhasználó által; kétlépcsős belépés (hitelesítő alkalmazás a Google után, kötelezővé is tehető); meghívó e-mailben (5. kör).
+- címkék, jegyzet és beszélőnevek az elemeken; a könyvtár exportja (Markdown vagy JSON); fióktörlés a felhasználó által; kétlépcsős belépés (hitelesítő alkalmazás a Google után, kötelezővé is tehető); meghívó e-mailben (5. kör);
+- felület a StockMaster mintájára: bal oldali, becsukható menü, mobilon becsúszó menü, világos és sötét téma, akadálymentes kezelés (billentyűzet, képernyőolvasó, látható fókusz).
 
 ## Fejlesztés
 

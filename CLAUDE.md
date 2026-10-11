@@ -23,7 +23,12 @@ include_private, caller in a contextvar, two SDK servers by permission, rate lim
 submit / re-transcribe logic for web and MCP); round 5: `personal.py` (tags, note, speaker names applied at display/
 download/export/MCP), `export.py` (ZIP: Markdown or JSON), account deletion (`accounts.delete_user`), own TOTP after
 Google (`totp_after_google`, REQUIRE_TOTP, `/belepes/kod`, `/belepes/kod-beallitas`), `mailer.py` (SMTP invites).
-Open: passkeys (waiting for the owner's decision).
+Design (decision 16.9): StockMaster look and layout. `templates/base.html` is the frame (left sidebar with grouped
+nav, collapsible on desktop, off-canvas on mobile; signed-out pages get a centred card), `templates/_icons.html` inline
+Lucide icons, `static/theme.js` (loaded in <head>, not deferred: theme + collapsed state before first paint, localStorage),
+`static/app.js` (menu, focus trap, theme toggle), `static/style.css` (HSL tokens, light/dark), `static/fonts/` vendored
+Inter (OFL; the CSP allows no external fonts). Check new pages at 390 px width: no horizontal scroll.
+Open: passkeys (not needed for now).
 Source of truth: `dwyt-docs` (`docs/terv.md`, `docs/protokoll.md`). Install: `docs/telepites.md`; tests need PostgreSQL
 (throw-away cluster from tests/pgcluster.py, or TEST_DATABASE_URL as superuser).
 License: AGPL-3.0.

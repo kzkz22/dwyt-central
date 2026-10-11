@@ -1,29 +1,36 @@
 {% extends "base.html" %}
 {% from "_macros.html" import model_select, speaker_fields, info, llm_rows, num %}
+{% from "_icons.html" import icon %}
 {% block title %}{{ item_title(item) }}{% endblock %}
 {% block content %}
+<nav class="crumbs" aria-label="Útvonal"><a href="/">Könyvtár</a> {{ icon("chevron", 14) }} <span aria-current="page">{{ item_title(item) }}</span></nav>
 <header class="item-head">
-  {% if thumb(item.source) %}<a href="{{ item.source.url }}" rel="noopener noreferrer" target="_blank"><img src="{{ thumb(item.source)|replace('mqdefault', 'hqdefault') }}" alt="" class="cover" referrerpolicy="no-referrer"></a>{% endif %}
+  {% if thumb(item.source) %}<a class="cover-link" href="{{ item.source.url }}" rel="noopener noreferrer" target="_blank" aria-label="Megnyitás a YouTube-on"><img src="{{ thumb(item.source)|replace('mqdefault', 'hqdefault') }}" alt="" class="cover" referrerpolicy="no-referrer"></a>
+  {% else %}<div class="cover nocover" aria-hidden="true">{{ icon("file", 40) }}</div>{% endif %}
   <div class="item-head-text">
-    <div class="bar">
-      <h1>{{ item_title(item) }}</h1>
-      <form method="post" action="/elem/{{ item.id }}/torles" class="inline confirm" data-confirm="Törlöd az elemet a könyvtáradból?">
-        <input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="danger small">Törlés</button>
+    <h1>{{ item_title(item) }}</h1>
+    {% set meta = item.source.meta %}
+    <ul class="facts" aria-label="Adatok">
+      <li><span class="fact-k">Forrás</span> {{ source_labels.get(item.source.kind, item.source.kind) }}{% if not item.is_public %} <span class="badge own">saját felvétel</span>{% endif %}</li>
+      {% if meta.channel %}<li><span class="fact-k">Csatorna</span> {{ meta.channel }}</li>{% endif %}
+      {% if meta.duration_s %}<li><span class="fact-k">Hossz</span> {{ hms(meta.duration_s) }}</li>{% endif %}
+      {% if meta.published %}<li><span class="fact-k">Megjelent</span> {{ meta.published }}</li>{% endif %}
+      {% if item_language %}<li><span class="fact-k">Nyelv</span> {{ item_language }}</li>{% endif %}
+      <li><span class="fact-k">Hozzáadva</span> {{ item.created_at|local }}</li>
+      {% if item.source.url %}<li class="fact-url"><span class="fact-k">Link</span> <a href="{{ item.source.url }}" rel="noopener noreferrer" target="_blank">{{ item.source.url }}</a></li>{% endif %}
+    </ul>
+    {% if tags %}<p class="actions head-tags">{% for t in tags %}<a class="badge" href="/?cimke={{ t|urlencode }}">{{ icon("tag", 12) }}{{ t }}</a>{% endfor %}</p>{% endif %}
+    <div class="actions head-actions">
+      {% if item.source.url %}<a class="button secondary small" href="{{ item.source.url }}" rel="noopener noreferrer" target="_blank">{{ icon("external", 15) }}Megnyitás</a>{% endif %}
+      {% if transcript %}<a class="button secondary small" href="/elem/{{ item.id }}/atirat/{{ transcript.id }}.txt">{{ icon("download", 15) }}Átirat (TXT)</a>{% endif %}
+      {% if summary %}<a class="button secondary small" href="/elem/{{ item.id }}/osszefoglalo/{{ summary.id }}.md">{{ icon("download", 15) }}Összefoglaló (MD)</a>{% endif %}
+      <form method="post" action="/elem/{{ item.id }}/torles" class="inline confirm push-right" data-confirm="Törlöd az elemet a könyvtáradból?">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="danger small">{{ icon("trash", 15) }}Törlés</button>
       </form>
     </div>
-    {% set meta = item.source.meta %}
-    <p class="meta">
-      {{ source_labels.get(item.source.kind, item.source.kind) }}
-      {% if meta.channel %} · {{ meta.channel }}{% endif %}
-      {% if meta.duration_s %} · {{ hms(meta.duration_s) }}{% endif %}
-      {% if meta.published %} · {{ meta.published }}{% endif %}
-      {% if item_language %} · nyelv: {{ item_language }}{% endif %}
-      · hozzáadva: {{ item.created_at|local }}
-      {% if not item.is_public %} · <span class="badge own">saját felvétel</span>{% endif %}
-    </p>
-    {% if item.source.url %}<p class="meta"><a href="{{ item.source.url }}" rel="noopener noreferrer" target="_blank">{{ item.source.url }}</a></p>{% endif %}
   </div>
 </header>
+<nav class="jump" aria-label="Ugrás az oldalon"><a href="#summary">{{ icon("sparkles", 15) }}Összefoglaló</a><a href="#sajat">{{ icon("tag", 15) }}Címkék és jegyzet</a><a href="#atirat">{{ icon("file", 15) }}Átirat</a></nav>
 {% include "_item_status.html" %}
 
 <section class="card" id="summary">
