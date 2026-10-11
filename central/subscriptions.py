@@ -140,6 +140,7 @@ def sync_google(settings: Settings, user_id: int) -> dict[str, Any]:
     try:
         token = youtube.access_token(settings, secretbox.unseal(link.refresh_token_enc))
         subs, total = youtube.subscriptions(settings, token)
+        channel_title = youtube.my_channel(settings, token)
         if not subs:  # an empty answer is more likely a glitch than unsubscribing from everything
             raise youtube.YoutubeError("A YouTube üres feliratkozás-listát adott; a csatornák változatlanok.")
     except (youtube.YoutubeError, secretbox.NoKey) as exc:
@@ -155,7 +156,8 @@ def sync_google(settings: Settings, user_id: int) -> dict[str, Any]:
                          .values(active=False)).rowcount
     with db.system_session() as s:
         s.execute(update(YoutubeLink).where(YoutubeLink.user_id == user_id)
-                  .values(synced_at=utcnow(), sync_error=None, sync_count=len(subs), sync_total=total))
+                  .values(synced_at=utcnow(), sync_error=None, sync_count=len(subs), sync_total=total,
+                          channel_title=channel_title))
     return {"count": len(subs), "added": added, "gone": gone, "total": total}
 
 

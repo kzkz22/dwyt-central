@@ -372,6 +372,7 @@ class YoutubeLink(Base):
     sync_error: Mapped[str | None] = mapped_column(Text)
     sync_count: Mapped[int | None] = mapped_column(Integer)
     sync_total: Mapped[int | None] = mapped_column(Integer)  # what YouTube reported (pageInfo.totalResults)
+    channel_title: Mapped[str | None] = mapped_column(Text)  # the YouTube channel the consent belongs to
 
 
 # ---- notifications (round 4b) ---------------------------------------------------------------

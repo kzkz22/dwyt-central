@@ -65,6 +65,13 @@ class FakeGoogle:
             fake.revoked.append(str((await request.form()).get("token")))
             return {}
 
+        @app.get("/youtube/v3/channels")
+        async def channels(request: Request):
+            token = request.headers.get("authorization", "").removeprefix("Bearer at-")
+            if token not in fake.refresh_tokens:
+                return JSONResponse({"error": "unauthorized"}, status_code=401)
+            return {"items": [{"snippet": {"title": f"Csatorna {token}"}}]}
+
         @app.get("/youtube/v3/subscriptions")
         async def subscriptions(request: Request):
             token = request.headers.get("authorization", "").removeprefix("Bearer at-")

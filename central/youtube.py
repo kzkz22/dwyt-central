@@ -210,6 +210,19 @@ def revoke(settings: Settings, refresh_token: str) -> None:
         pass
 
 
+def my_channel(settings: Settings, token: str) -> str | None:
+    """The title of the YouTube channel the consent belongs to (to show which one is connected)."""
+    try:
+        resp = httpx.get(f"{settings.google_api_url}/youtube/v3/channels", params={"part": "snippet", "mine": "true"},
+                         headers={"Authorization": f"Bearer {token}"}, timeout=20)
+    except httpx.HTTPError:
+        return None
+    if resp.status_code != 200:
+        return None
+    items = resp.json().get("items") or []
+    return str(items[0].get("snippet", {}).get("title") or "")[:200] or None if items else None
+
+
 def subscriptions(settings: Settings, token: str) -> tuple[list[tuple[str, str | None]], int | None]:
     """(channel id, title) of every channel the connected account is subscribed to, and the total
     YouTube reports. Alphabetical order: the default (relevance) order can skip items while paging."""
