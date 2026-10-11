@@ -154,11 +154,30 @@ Saját Google Cloud-projekt kell; a régi `yt-webui` projektet nem érdemes hasz
    - Application home page: `https://github.com/kzkz22/dwyt-docs`
    - Application privacy policy link: `https://github.com/kzkz22/dwyt-docs/blob/main/docs/adatvedelem.md`
    - Authorized domains: `iodate.date` és `github.com`.
-3. **Audience:** External, majd **Publish app**. A belépéshez csak alap jogosultság kell (név, e-mail), ezért nincs „unverified app” figyelmeztetés és felhasználói korlát.
+3. **Audience:** External, majd **Publish app**. A belépéshez csak alap jogosultság kell (név, e-mail), ezért nincs „unverified app” figyelmeztetés és felhasználói korlát. (A YouTube-feliratkozások olvasásánál van; lásd alább.)
 4. **Clients → Create client:** típus **Web application**, név `dwyt`.
    - Authorized redirect URIs: `https://dwyt.iodate.date/auth/google/callback`
    - Helyi fejlesztéshez még: `http://localhost:8000/auth/google/callback`
 5. A kapott Client ID és Client secret a `.env`-be: `GOOGLE_CLIENT_ID=…`, `GOOGLE_CLIENT_SECRET=…`, majd `systemctl restart dwyt-central`.
+
+### YouTube-feliratkozások (nem kötelező)
+
+A Csatornák oldalon a felhasználó összekapcsolhatja a YouTube-fiókját; a központ ekkor naponta kiolvassa a feliratkozás-listáját (csak olvasási jog: `youtube.readonly`). Enélkül is működik a feliratkozás Takeout-fájlból és kézzel.
+
+1. **APIs & Services → Library:** „YouTube Data API v3” → **Enable**.
+2. **Google Auth Platform → Data Access → Add or remove scopes:** `https://www.googleapis.com/auth/youtube.readonly` → Update → Save. Ez „érzékeny” jogosultság: ellenőrzés nélkül az összekapcsoláskor a Google „unverified app” figyelmeztetést mutat (Speciális → Tovább), és legfeljebb 100 felhasználó kapcsolhat össze. Az alkalmazás maradjon **In production** állapotban, mert „Testing” állapotban a hozzáférés 7 nap után lejár.
+3. Titkosítókulcs a tárolt hozzáférésekhez, a `central.env`-be:
+
+   ```bash
+   # LXC-ben
+   echo "TOKEN_KEY=$(/opt/dwyt-central/venv/bin/python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')" >> /etc/dwyt-central/central.env
+   systemctl restart dwyt-central
+   dwyt-central-cli check     # „YouTube-összekapcsolás (TOKEN_KEY): beállítva”
+   ```
+
+   A kulcsot őrizd meg a mentéssel együtt: ha elveszik, a felhasználóknak újra össze kell kapcsolniuk a fiókjukat.
+
+A hírcsatornákat (RSS) a központ óránként maga nézi meg, belépés és API-keret nélkül; ehhez a központnak el kell érnie a `www.youtube.com`-ot.
 
 ## 8. Apache, tanúsítvány, DNS
 

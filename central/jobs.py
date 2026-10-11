@@ -246,8 +246,12 @@ def fail(s: DbSession, runner: Runner, job_id: int, error: str, retry_mode: str,
     job = running_job(s, runner, job_id)
     now = utcnow()
     job.error, job.updated_at, job.runner_id, job.lease_until = (error or "")[:2000], now, None, None
+    from .subscriptions import chain_step  # subscription videos: the configured chain decides
+
     if job.cancel_requested:
         job.state, job.finished_at, job.error = "cancelled", now, None
+    elif chain_step(job, retry_mode, error or "", settings):
+        pass
     elif retry_mode == "later" and job.attempts < settings.job_max_attempts:
         delay = RETRY_MINUTES[min(job.attempts - 1, len(RETRY_MINUTES) - 1)]
         job.state, job.stage, job.run_after = "queued", "queued", now + timedelta(minutes=delay)

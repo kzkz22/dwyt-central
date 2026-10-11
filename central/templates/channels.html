@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Csatornák{% endblock %}
+{% block content %}
+<div class="bar">
+  <h1>Csatornák</h1>
+  <form method="post" action="/csatornak/ellenorzes" class="inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="secondary small">Ellenőrzés most</button>
+  </form>
+</div>
+{% if message %}<p class="{{ 'error' if message_error else 'warn-box' }}" role="status">{{ message }}</p>{% endif %}
+
+<section class="card" id="youtube">
+  <h2>Feliratkozások a YouTube-fiókodból</h2>
+  {% if not google_ready %}
+  <p class="muted">A központon nincs beállítva a Google-belépés; addig a Takeout-fájl vagy a kézi felvétel működik.</p>
+  {% elif link %}
+  <p>Összekapcsolva{% if link.email %} ({{ link.email }}){% endif %}. A lista naponta frissül{% if link.synced_at %}; utoljára {{ link.synced_at|local }}{% if link.sync_error %} – <span class="error-text">hiba: {{ link.sync_error }}</span>{% elif link.sync_count is not none %}, {{ link.sync_count }} feliratkozás{% endif %}{% endif %}.</p>
+  <div class="actions">
+    <form method="post" action="/csatornak/youtube/frissites" class="inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="secondary small">Frissítés most</button>
+    </form>
+    <form method="post" action="/csatornak/youtube/levalasztas" class="inline confirm" data-confirm="Leválasztod a YouTube-fiókot? A csatornák és a szabályaik megmaradnak (kézi csatornaként).">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="secondary small">Leválasztás</button>
+    </form>
+  </div>
+  {% else %}
+  <form method="post" action="/csatornak/youtube" class="inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}"><button {% if not token_ready %}disabled{% endif %}>YouTube-fiók összekapcsolása</button>
+  </form>
+  <p class="muted">Csak olvasási jog (youtube.readonly): a feliratkozás-listádat látja, mást nem. A Google figyelmeztethet, hogy az alkalmazás nincs ellenőrizve; ez a magánpéldányoknál megszokott.{% if not token_ready %} <span class="error-text">A központon nincs beállítva a TOKEN_KEY, ezért most nem kapcsolható össze.</span>{% endif %}</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Csatorna felvétele</h2>
+  <form method="post" action="/csatornak/hozzaad" class="filters">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <input type="search" name="channel" placeholder="https://www.youtube.com/@csatorna, @név vagy UC… azonosító" aria-label="Csatorna" required>
+    <button class="small">Felvétel</button>
+  </form>
+  <form method="post" action="/csatornak/takeout" enctype="multipart/form-data" class="filters">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <label>Google Takeout <code>subscriptions.csv</code> <input type="file" name="file" accept=".csv,text/csv" required></label>
+    <button class="secondary small">Betöltés</button>
+  </form>
+</section>
+
+<section>
+  <h2>Követett csatornák ({{ subs|length }})</h2>
+  <p class="muted">Szabály: <strong>mindig</strong> = minden új videóhoz magától készül átirat és összefoglaló; <strong>kérdezzen</strong> = a postaládába kerül; <strong>soha</strong> = nem figyeli. Átírás: YouTube-felirat → ha nincs, helyi Whisper (megvárja a GPU-gépet) → felhő csak bepipálva. A hírcsatornákat {{ poll_min }} percenként nézi meg. A Shorts videók külön fülre kerülnek.</p>
+  {% if not subs %}<p class="card">Még nem követsz csatornát.</p>{% endif %}
+  <ul class="items">
+  {% for sub in subs %}
+    <li class="item channel{{ ' inactive' if not sub.active }}" id="c{{ sub.id }}">
+      <div>
+        <a href="https://www.youtube.com/channel/{{ sub.channel_id }}" target="_blank" rel="noreferrer noopener" class="title">{{ sub.channel.title or sub.channel_id }}</a>
+        <div class="meta">{{ sources[sub.source] }}{% if not sub.active %} · már nem vagy feliratkozva{% endif %}{% if new_counts.get(sub.channel_id) %} · <a href="/postalada">{{ new_counts[sub.channel_id] }} új</a>{% endif %}{% if sub.channel.last_checked_at %} · ellenőrizve: {{ sub.channel.last_checked_at|local }}{% endif %}</div>
+        {% if sub.channel.last_error %}<div class="error-text">{{ sub.channel.last_error }}</div>{% endif %}
+        <form method="post" action="/csatornak/{{ sub.id }}/beallitas" class="filters channel-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf }}">
+          <select name="rule" aria-label="Szabály">{% for key, label in rules.items() %}<option value="{{ key }}" {% if sub.rule == key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+          <select name="notify" aria-label="Értesítés">{% for key, label in notify_options.items() %}<option value="{{ key }}" {% if sub.notify == key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+          <label class="choice"><input type="checkbox" name="allow_cloud" {% if sub.allow_cloud %}checked{% endif %}> felhős átírás is</label>
+          <button class="secondary small">Mentés</button>
+        </form>
+      </div>
+      <form method="post" action="/csatornak/{{ sub.id }}/torles" class="inline confirm" data-confirm="Nem követed tovább a csatornát? A még nem kért videói kikerülnek a postaládából, a könyvtár megmarad.">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="danger small">Törlés</button>
+      </form>
+    </li>
+  {% endfor %}
+  </ul>
+</section>
+{% endblock %}

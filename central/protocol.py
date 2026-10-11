@@ -244,9 +244,9 @@ class FailBody(BaseModel):
 
 @router.post("/jobs/{job_id}/fail")
 async def fail(job_id: int, body: FailBody, runner: Runner = Depends(current_runner)):
-    retry = "never" if body.retry == "next_step" else body.retry  # no chains before round 4
+    # next_step continues a subscription video's chain; elsewhere it is final, like never
     status, data = await run_in_threadpool(
-        _protocol_call, lambda s, *a: jobs.fail(s, *a) or {"ok": True}, runner, job_id, body.error, retry,
+        _protocol_call, lambda s, *a: jobs.fail(s, *a) or {"ok": True}, runner, job_id, body.error, body.retry,
         get_settings())
     return JSONResponse(data, status_code=status)
 

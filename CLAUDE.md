@@ -13,7 +13,10 @@ transcription, summary and translate jobs; search: `indexing.py` shared chunks +
 has them, runner watched folders via `/runner/v1/local-items`, quotas; 3c: `items.py` main transcript / removal /
 summary versions / bulk backfill, `render.py` summary Markdown subset, TXT/SRT/MD downloads, re-transcription,
 LLM models chosen from the runners' `llm_models` capability, job progress on the item page, unreferenced shared
-results dropped by `indexing.drop_unreferenced_results`). Round 4 (subscriptions, notifications, MCP) is next.
+results dropped by `indexing.drop_unreferenced_results`); 4a: `subscriptions.py` (shared channels/feed videos,
+per-user subscriptions + inbox, fan-out, the captions → local → cloud chain via `chain_step` in `jobs.fail`,
+`Background` thread), `youtube.py` (RSS, Shorts, handles, Takeout, Web OAuth youtube.readonly), `secretbox.py`
+(TOKEN_KEY Fernet for refresh tokens). Next: 4b notifications (ntfy, Home Assistant), 4c MCP.
 Source of truth: `dwyt-docs` (`docs/terv.md`, `docs/protokoll.md`). Install: `docs/telepites.md`; tests need PostgreSQL
 (throw-away cluster from tests/pgcluster.py, or TEST_DATABASE_URL as superuser).
 License: AGPL-3.0.

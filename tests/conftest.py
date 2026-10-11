@@ -17,11 +17,12 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from fakes import FakeEmbed, FakeGoogle  # noqa: E402
+from fakes import FakeEmbed, FakeGoogle, FakeYoutube  # noqa: E402
 from pgcluster import Cluster  # noqa: E402
 
 PROTO = {"Dwyt-Protocol": "1"}
-TABLES = ("uploads, index_queue, chunks, item_translations, translation_segments, translations, "
+TABLES = ("youtube_links, inbox_entries, subscriptions, channel_videos, channels, "
+          "uploads, index_queue, chunks, item_translations, translation_segments, translations, "
           "jobs, item_summaries, item_transcripts, items, summaries, segments, transcripts, sources, "
           "pair_requests, runners, login_states, sessions, invites, users")
 
@@ -68,6 +69,13 @@ def fake_google():
 
 
 @pytest.fixture(scope="session")
+def fake_youtube():
+    y = FakeYoutube().start()
+    yield y
+    y.stop()
+
+
+@pytest.fixture(scope="session")
 def fake_embed():
     e = FakeEmbed().start()
     yield e
@@ -75,14 +83,17 @@ def fake_embed():
 
 
 @pytest.fixture(scope="session")
-def configured(database_urls, fake_google):
+def configured(database_urls, fake_google, fake_youtube):
+    from cryptography.fernet import Fernet
     system_url, app_url = database_urls
     os.environ.update(DATABASE_SYSTEM_URL=system_url, DATABASE_URL=app_url, APP_DB_ROLE="dwyt_test_app",
                       BASE_URL="http://testserver", COOKIE_SECURE="false", GOOGLE_CLIENT_ID="gclient",
                       GOOGLE_CLIENT_SECRET="gsecret", GOOGLE_TOKEN_URL=f"{fake_google.url}/token",
                       GOOGLE_AUTH_URL="https://accounts.example/auth", REGISTRATION="invite",
                       CLAIM_WAIT_S="0.3", CLAIM_POLL_S="0.05", LEASE_S="900",
-                      INDEXER="false", EMBED_URL="", STAGING_DIR=tempfile.mkdtemp(prefix="dwyt-staging-"))
+                      INDEXER="false", BACKGROUND="false", EMBED_URL="", YOUTUBE_URL=fake_youtube.url,
+                      GOOGLE_API_URL=fake_google.url, GOOGLE_REVOKE_URL=f"{fake_google.url}/revoke",
+                      TOKEN_KEY=Fernet.generate_key().decode(), STAGING_DIR=tempfile.mkdtemp(prefix="dwyt-staging-"))
     from alembic import command
     from alembic.config import Config
 
@@ -98,7 +109,7 @@ def configured(database_urls, fake_google):
 
 
 @pytest.fixture(autouse=True)
-def clean(configured, fake_google, monkeypatch):
+def clean(configured, fake_google, fake_youtube, monkeypatch):
     from central import db, web
     from central.config import get_settings
 
@@ -108,6 +119,7 @@ def clean(configured, fake_google, monkeypatch):
     with db.system_engine().begin() as conn:
         conn.execute(text(f"TRUNCATE {TABLES} RESTART IDENTITY CASCADE"))
     fake_google.reset()
+    fake_youtube.reset()
     web._pair_failures.clear()
     from central import ratelimit
     ratelimit.reset()

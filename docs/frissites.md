@@ -52,6 +52,12 @@ Egyszeri lépések, a fenti frissítés **előtt**:
 3. A futtatókat frissítsd a 0.4.0-s változatra (`uv tool install --force git+https://github.com/kzkz22/dwyt-runner`), és indítsd újra őket. A régebbi futtató nem kap feltöltött fájlt.
 4. Ha kell, a figyelt mappát a futtatón: `dwyt-runner config set watch_dirs "MAPPA"`, majd újraindítás.
 
+## Frissítés a 4a részre (YouTube-feliratkozások, postaláda)
+
+1. A fenti frissítés (a `pip install` hozza az új `cryptography` csomagot; az adatbázis-migráció magától lefut).
+2. Ha a felhasználók a YouTube-fiókjukból is behúzhatják a feliratkozásaikat: a [telepites.md](telepites.md) „YouTube-feliratkozások” része (YouTube Data API bekapcsolása, a `youtube.readonly` jogosultság, `TOKEN_KEY`), majd `systemctl restart dwyt-central`.
+3. A futtatókat nem kell frissíteni. A feliratkozásos videók láncolata (felirat → helyi Whisper → felhő, ha a csatornán engedélyezett) a meglévő futtatókkal működik.
+
 ## Protokollváltás
 
 Ha egy frissítés új protokollverziót hoz, a központ az előzőt is elfogadja egy ideig; a túl régi futtató a Futtatók oldalon „régi protokoll” jelzést kap, és a futtató maga is kiírja: `uv tool upgrade dwyt-runner`.

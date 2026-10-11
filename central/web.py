@@ -28,11 +28,11 @@ from sqlalchemy.dialects.postgresql import insert
 from starlette.concurrency import run_in_threadpool
 
 from . import (accounts, db, indexing, items, jobs, library, ownfiles, protocol, ratelimit, render, reuse, search,
-               security, sources)
+               secretbox, security, sources, subscriptions, youtube)
 from .config import Settings, get_settings
 from .db import utcnow
-from .models import (ACTIVE, Invite, Item, ItemSummary, ItemTranscript, ItemTranslation, Job, Runner, Session,
-                     Source, Summary, Transcript, Translation, Upload, User)
+from .models import (ACTIVE, Channel, InboxEntry, Invite, Item, ItemSummary, ItemTranscript, ItemTranslation, Job,
+                     LoginState, Runner, Session, Source, Subscription, Summary, Transcript, Translation, Upload, User)
 
 log = logging.getLogger("dwyt")
 HERE = Path(__file__).resolve().parent
@@ -41,13 +41,16 @@ ONLINE_S = 90
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
-    indexer = None
+    threads = []
     if get_settings().indexer:
-        indexer = indexing.Indexer()
-        indexer.start()
+        threads.append(indexing.Indexer())
+    if get_settings().background:
+        threads.append(subscriptions.Background())
+    for thread in threads:
+        thread.start()
     yield
-    if indexer is not None:
-        indexer.stop.set()
+    for thread in threads:
+        thread.stop.set()
 
 
 app = FastAPI(title="dwyt", docs_url=None, redoc_url=None, openapi_url=None, lifespan=_lifespan)
@@ -295,10 +298,18 @@ async def google_callback(request: Request, state: str = "", code: str = "", err
         return _message(request, None, "A belépés nem sikerült", "A Google-belépést megszakítottad vagy "
                         "a Google elutasította. Próbáld újra.", "/belepes", 400)
     browser_state = request.cookies.get(LOGIN_COOKIE, "")
+    if browser_state and secrets.compare_digest(browser_state, state):
+        with db.system_session() as s:
+            pending = s.get(LoginState, security.token_hash(state)) if len(state) < 200 else None
+            purpose = pending.purpose if pending is not None else "login"
+        if purpose == "youtube":
+            return await _youtube_callback(request, state, code)
 
     def sign_in() -> str:
         with db.system_session() as s:  # consumed even when the rest fails
             login = accounts.consume_state(s, state)
+        if login.purpose != "login":
+            raise accounts.SignInError("A belépés lejárt vagy érvénytelen. Kezdd újra.")
         if not browser_state or not secrets.compare_digest(browser_state, state):
             raise accounts.SignInError("A belépést ebben a böngészőben kell elkezdeni. Kezdd újra.")
         who, invite_hash = accounts.finish(login, settings, code)
@@ -318,6 +329,35 @@ async def google_callback(request: Request, state: str = "", code: str = "", err
     response = _redirect("/")
     response.delete_cookie(LOGIN_COOKIE, path="/auth/google")
     _set_cookie(response, token, settings, int(settings.session_days * 86400))
+    return response
+
+
+async def _youtube_callback(request: Request, state: str, code: str):
+    """The end of connecting YouTube (Channels page): only for the signed-in user who started it."""
+    viewer = await current_viewer(request)
+    settings = get_settings()
+
+    def connect() -> None:
+        with db.system_session() as s:
+            login = accounts.consume_state(s, state)
+        if login.user_id != viewer.id:
+            raise youtube.YoutubeError("Az összekapcsolást ugyanazzal a fiókkal kell befejezni, amelyikkel elkezdted.")
+        refresh_token, email = youtube.connect_finish(login, settings, code)
+        subscriptions.save_link(viewer.id, refresh_token, email)
+
+    try:
+        await run_in_threadpool(connect)
+    except (accounts.SignInError, youtube.YoutubeError, secretbox.NoKey) as exc:
+        response = _message(request, viewer, "A YouTube-fiók összekapcsolása nem sikerült", str(exc), "/csatornak",
+                            400)
+        response.delete_cookie(LOGIN_COOKIE, path="/auth/google")
+        return response
+    try:
+        await run_in_threadpool(subscriptions.sync_google, settings, viewer.id)
+    except (youtube.YoutubeError, secretbox.NoKey):
+        pass  # shown on the Channels page
+    response = _redirect("/csatornak")
+    response.delete_cookie(LOGIN_COOKIE, path="/auth/google")
     return response
 
 
@@ -817,6 +857,168 @@ async def request_translation(request: Request, item_id: int, viewer: Viewer = D
     if error:
         return _message(request, viewer, "A fordítás nem indult el", error, f"/elem/{item_id}", 422)
     return _redirect(f"/elem/{item_id}")
+
+
+# ---- subscriptions --------------------------------------------------------------------------
+
+INBOX_TABS = {"uj": ("new",), "folyamatban": ("queued",), "kesz": ("done",), "kihagyott": ("skipped", "failed"),
+              "shorts": ("short",)}
+INBOX_LABELS = {"uj": "Új", "folyamatban": "Folyamatban", "kesz": "Kész", "kihagyott": "Kihagyott",
+                "shorts": "Shorts"}
+
+
+def _channels_context(viewer: Viewer, message: str | None = None, error: bool = False) -> dict[str, Any]:
+    settings = get_settings()
+    with db.user_session(viewer.id) as s:
+        subs = s.scalars(select(Subscription).join(Channel, Channel.id == Subscription.channel_id)
+                         .order_by(Subscription.active.desc(), func.lower(func.coalesce(Channel.title,
+                                                                                          Channel.id)))).all()
+        new_counts = dict(s.execute(select(InboxEntry.channel_id, func.count()).where(InboxEntry.state == "new")
+                                    .group_by(InboxEntry.channel_id)).all())
+    return {"subs": subs, "new_counts": new_counts, "rules": subscriptions.RULES, "sources": subscriptions.SOURCES,
+            "notify_options": subscriptions.NOTIFY, "link": subscriptions.link_of(viewer.id),
+            "google_ready": bool(settings.google_client_id and settings.google_client_secret),
+            "token_ready": secretbox.available(), "message": message, "message_error": error,
+            "poll_min": settings.feed_poll_min}
+
+
+@app.get("/csatornak", response_class=HTMLResponse)
+def channels_page(request: Request, viewer: Viewer = Depends(current_viewer)):
+    return _render(request, "channels.html", viewer, **_channels_context(viewer))
+
+
+def _channels_message(request: Request, viewer: Viewer, message: str, error: bool = False, status: int = 200):
+    return _render(request, "channels.html", viewer, status_code=status,
+                   **_channels_context(viewer, message, error))
+
+
+@app.post("/csatornak/youtube")
+async def youtube_connect(request: Request, viewer: Viewer = Depends(authed_post)):
+    settings = get_settings()
+    if not secretbox.available():
+        return _channels_message(request, viewer, "A YouTube-fiók összekapcsolásához a központon be kell állítani a "
+                                 "TOKEN_KEY-t (docs/telepites.md).", True, 422)
+
+    def start() -> tuple[str, str]:
+        with db.system_session() as s:
+            return youtube.connect_start(s, settings, viewer.id, viewer.email)
+    try:
+        url, state = await run_in_threadpool(start)
+    except youtube.YoutubeError as exc:
+        return _channels_message(request, viewer, str(exc), True, 422)
+    response = RedirectResponse(url, status_code=303)
+    response.set_cookie(LOGIN_COOKIE, state, max_age=youtube.STATE_MINUTES * 60, httponly=True, samesite="lax",
+                        secure=settings.cookie_secure, path="/auth/google")
+    return response
+
+
+@app.post("/csatornak/youtube/frissites")
+async def youtube_sync(request: Request, viewer: Viewer = Depends(authed_post)):
+    try:
+        got = await run_in_threadpool(subscriptions.sync_google, get_settings(), viewer.id)
+    except (youtube.YoutubeError, secretbox.NoKey) as exc:
+        return _channels_message(request, viewer, str(exc), True, 502)
+    return _channels_message(request, viewer, f"A YouTube-fiókban {got['count']} feliratkozás van; "
+                             f"{got['added']} új csatorna, {got['gone']} leiratkozott.")
+
+
+@app.post("/csatornak/youtube/levalasztas")
+async def youtube_unlink(viewer: Viewer = Depends(authed_post)):
+    await run_in_threadpool(subscriptions.unlink, get_settings(), viewer.id)
+    return _redirect("/csatornak")
+
+
+@app.post("/csatornak/hozzaad")
+async def channel_add(request: Request, viewer: Viewer = Depends(authed_post)):
+    given = str((await request.form()).get("channel") or "")
+
+    def add() -> str:
+        cid, title = youtube.resolve_channel(get_settings(), given)
+        added = subscriptions.add_subscriptions(viewer.id, [(cid, title)], "manual")
+        return f"{'Felvéve' if added else 'Már követed'}: {title or cid}. Az ezután megjelenő videói kerülnek a " \
+               "postaládába."
+    try:
+        message = await run_in_threadpool(add)
+    except youtube.YoutubeError as exc:
+        return _channels_message(request, viewer, str(exc), True, 422)
+    return _channels_message(request, viewer, message)
+
+
+@app.post("/csatornak/takeout")
+async def channel_takeout(request: Request, viewer: Viewer = Depends(authed_post)):
+    upload = (await request.form()).get("file")
+    data = await upload.read(5 * 1024 ** 2 + 1) if hasattr(upload, "read") else b""
+    if len(data) > 5 * 1024 ** 2:
+        return _channels_message(request, viewer, "A fájl túl nagy (legfeljebb 5 MB).", True, 413)
+    found = youtube.parse_takeout(data)
+    if not found:
+        return _channels_message(request, viewer, "A fájlban nincs csatorna. A Google Takeoutban a YouTube "
+                                 "„subscriptions.csv” fájlját add meg.", True, 422)
+    added = await run_in_threadpool(subscriptions.add_subscriptions, viewer.id, found, "takeout")
+    return _channels_message(request, viewer, f"{len(found)} csatorna a fájlban, ebből {added} új.")
+
+
+@app.post("/csatornak/ellenorzes")
+async def channels_poll_now(request: Request, viewer: Viewer = Depends(authed_post)):
+    def run() -> int:
+        with db.user_session(viewer.id) as s:
+            ids = s.scalars(select(Subscription.channel_id).where(Subscription.active.is_(True),
+                                                                  Subscription.rule != "never").limit(100)).all()
+        return sum(subscriptions.poll_channel(get_settings(), cid) for cid in ids)
+    new = await run_in_threadpool(run)
+    return _channels_message(request, viewer, f"Ellenőrizve; {new} új videó a hírcsatornákban.")
+
+
+@app.post("/csatornak/{sub_id}/beallitas")
+async def channel_settings(sub_id: int, request: Request, viewer: Viewer = Depends(authed_post)):
+    form = await request.form()
+    ok = await run_in_threadpool(subscriptions.update_subscription, viewer.id, sub_id, str(form.get("rule") or ""),
+                                 form.get("allow_cloud") == "on", str(form.get("notify") or "digest"))
+    if not ok:
+        return _channels_message(request, viewer, "Nincs ilyen csatorna vagy beállítás.", True, 422)
+    return _redirect(f"/csatornak#c{sub_id}")
+
+
+@app.post("/csatornak/{sub_id}/torles")
+async def channel_remove(sub_id: int, viewer: Viewer = Depends(authed_post)):
+    await run_in_threadpool(subscriptions.remove_subscription, viewer.id, sub_id)
+    return _redirect("/csatornak")
+
+
+@app.get("/postalada", response_class=HTMLResponse)
+def inbox_page(request: Request, allapot: str = "uj", viewer: Viewer = Depends(current_viewer)):
+    tab = allapot if allapot in INBOX_TABS else "uj"
+    with db.user_session(viewer.id) as s:
+        subscriptions.sync_inbox(s)
+        entries = s.scalars(select(InboxEntry).where(InboxEntry.state.in_(INBOX_TABS[tab]))
+                            .order_by(InboxEntry.published_at.desc().nulls_last(), InboxEntry.id.desc())
+                            .limit(200)).all()
+        counts = dict(s.execute(select(InboxEntry.state, func.count()).group_by(InboxEntry.state)).all())
+        job_map = {j.id: j for j in s.scalars(select(Job).where(Job.id.in_([e.job_id for e in entries if e.job_id])))}
+        waiting = subscriptions.gpu_waiting(s)
+        followed = s.scalar(select(func.count()).select_from(Subscription)) or 0
+    tab_counts = {k: sum(counts.get(st, 0) for st in v) for k, v in INBOX_TABS.items()}
+    return _render(request, "inbox.html", viewer, entries=entries, tab=tab, tabs=INBOX_LABELS, tab_counts=tab_counts,
+                   gpu_waiting=waiting, job_map=job_map, followed=followed, now=utcnow())
+
+
+@app.post("/postalada/{entry_id}/keres")
+async def inbox_request(request: Request, entry_id: int, viewer: Viewer = Depends(authed_post)):
+    back = str((await request.form()).get("vissza") or "uj")
+    await run_in_threadpool(subscriptions.request_entry, get_settings(), viewer.id, entry_id)
+    return _redirect(f"/postalada?allapot={back if back in INBOX_TABS else 'uj'}")
+
+
+@app.post("/postalada/{entry_id}/kihagy")
+async def inbox_skip(entry_id: int, viewer: Viewer = Depends(authed_post)):
+    await run_in_threadpool(subscriptions.skip, viewer.id, [entry_id])
+    return _redirect("/postalada")
+
+
+@app.post("/postalada/kihagy-mind")
+async def inbox_skip_all(viewer: Viewer = Depends(authed_post)):
+    await run_in_threadpool(subscriptions.skip, viewer.id, None)
+    return _redirect("/postalada")
 
 
 # ---- settings -----------------------------------------------------------------------------

@@ -57,6 +57,20 @@ class Settings:
     storage_quota_mb: int = field(default_factory=lambda: int(_env("STORAGE_QUOTA_MB", "2048")))
     # the indexer thread inside the web service (false only in tests)
     indexer: bool = field(default_factory=lambda: _bool("INDEXER", True))
+    # YouTube subscriptions (round 4): feeds polled centrally, the list read with the user's
+    # consent (youtube.readonly); the refresh tokens are encrypted with TOKEN_KEY (Fernet)
+    background: bool = field(default_factory=lambda: _bool("BACKGROUND", True))  # feeds, Google sync
+    token_key: str = field(default_factory=lambda: _env("TOKEN_KEY"))
+    feed_poll_min: int = field(default_factory=lambda: int(_env("FEED_POLL_MIN", "60")))
+    google_sync_hours: float = field(default_factory=lambda: float(_env("GOOGLE_SYNC_HOURS", "24")))
+    # a subscription video without captions waits this long for the user's GPU (local Whisper)
+    # before the next step of its chain (cloud, if the channel allows it)
+    gpu_wait_h: float = field(default_factory=lambda: float(_env("GPU_WAIT_H", "72")))
+    youtube_url: str = field(default_factory=lambda: _env("YOUTUBE_URL", "https://www.youtube.com").rstrip("/"))
+    google_api_url: str = field(default_factory=lambda: _env(
+        "GOOGLE_API_URL", "https://www.googleapis.com").rstrip("/"))
+    google_revoke_url: str = field(default_factory=lambda: _env(
+        "GOOGLE_REVOKE_URL", "https://oauth2.googleapis.com/revoke"))
 
     @property
     def redirect_uri(self) -> str:

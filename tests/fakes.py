@@ -38,6 +38,10 @@ class FakeGoogle:
         @app.post("/token")
         async def token(request: Request):
             form = await request.form()
+            if form.get("grant_type") == "refresh_token":
+                if form.get("refresh_token") not in fake.refresh_tokens or form.get("client_secret") != "gsecret":
+                    return JSONResponse({"error": "invalid_grant"}, status_code=400)
+                return {"access_token": f"at-{form.get('refresh_token')}", "expires_in": 3600}
             entry = fake.codes.pop(str(form.get("code")), None)
             if entry is None or form.get("client_id") != fake.client_id or form.get("client_secret") != "gsecret":
                 return JSONResponse({"error": "invalid_grant"}, status_code=400)
@@ -49,7 +53,30 @@ class FakeGoogle:
                       "nonce": entry["nonce"], **entry["claims"]}
             id_token = f"{_b64({'alg': 'RS256'})}.{_b64(claims)}.sig"
             fake.calls += 1
-            return {"access_token": "at", "id_token": id_token, "token_type": "Bearer", "expires_in": 3600}
+            answer = {"access_token": "at", "id_token": id_token, "token_type": "Bearer", "expires_in": 3600,
+                      "scope": entry.get("scope", "openid email profile")}
+            if entry.get("refresh_token"):
+                answer["refresh_token"] = entry["refresh_token"]
+                fake.refresh_tokens.add(entry["refresh_token"])
+            return answer
+
+        @app.post("/revoke")
+        async def revoke(request: Request):
+            fake.revoked.append(str((await request.form()).get("token")))
+            return {}
+
+        @app.get("/youtube/v3/subscriptions")
+        async def subscriptions(request: Request):
+            token = request.headers.get("authorization", "").removeprefix("Bearer at-")
+            if token not in fake.refresh_tokens:
+                return JSONResponse({"error": "unauthorized"}, status_code=401)
+            subs = fake.subscriptions.get(token, [])
+            start = int(request.query_params.get("pageToken") or 0)
+            page = subs[start:start + 2]  # small pages: the client must follow nextPageToken
+            body = {"items": [{"snippet": {"title": t, "resourceId": {"channelId": c}}} for c, t in page]}
+            if start + 2 < len(subs):
+                body["nextPageToken"] = str(start + 2)
+            return body
 
         self.app = app
         self._server: uvicorn.Server | None = None
@@ -57,6 +84,9 @@ class FakeGoogle:
     def reset(self) -> None:
         self.codes: dict[str, dict] = {}
         self.calls = 0
+        self.refresh_tokens: set[str] = set()
+        self.revoked: list[str] = []
+        self.subscriptions: dict[str, list[tuple[str, str]]] = {}  # refresh token -> (channel id, title)
 
     def start(self) -> "FakeGoogle":
         self._server = uvicorn.Server(uvicorn.Config(self.app, host="127.0.0.1", port=self.port, log_level="warning"))
@@ -117,6 +147,60 @@ class FakeEmbed:
     def reset(self) -> None:
         self.down = False
         self.calls: list[list[str]] = []
+
+    start = FakeGoogle.start
+    stop = FakeGoogle.stop
+
+
+class FakeYoutube:
+    """YouTube's public pages the central service reads: channel feeds, the Shorts address, @handle pages.
+    feeds: channel id -> [(video id, title, published ISO)]; shorts: video ids; handles: @name -> (id, title)."""
+
+    def __init__(self) -> None:
+        from fastapi.responses import HTMLResponse, Response
+        self.port = free_port()
+        self.url = f"http://127.0.0.1:{self.port}"
+        self.reset()
+        app = FastAPI()
+        fake = self
+
+        @app.get("/feeds/videos.xml")
+        async def feed(channel_id: str):
+            fake.feed_calls.append(channel_id)
+            if channel_id not in fake.feeds:
+                return Response(status_code=404)
+            entries = "".join(
+                f"<entry><yt:videoId>{vid}</yt:videoId><title>{title}</title><published>{when}</published></entry>"
+                for vid, title, when in fake.feeds[channel_id])
+            xml = ('<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom" '
+                   'xmlns:yt="http://www.youtube.com/xml/schemas/2015">'
+                   f"<title>{fake.titles.get(channel_id, 'Csatorna')}</title>{entries}</feed>")
+            return Response(xml, media_type="application/atom+xml")
+
+        @app.head("/shorts/{video_id}")
+        async def shorts(video_id: str):
+            if video_id in fake.shorts:
+                return Response(status_code=200)
+            return Response(status_code=303, headers={"location": f"/watch?v={video_id}"})
+
+        @app.get("/{handle}")
+        async def handle_page(handle: str):
+            if handle not in fake.handles:
+                return Response(status_code=404)
+            cid, title = fake.handles[handle]
+            return HTMLResponse(f'<html><head><meta property="og:title" content="{title}">'
+                                f'<link rel="canonical" href="https://www.youtube.com/channel/{cid}"></head>'
+                                f'<body>"externalId":"{cid}"</body></html>')
+
+        self.app = app
+        self._server: uvicorn.Server | None = None
+
+    def reset(self) -> None:
+        self.feeds: dict[str, list[tuple[str, str, str]]] = {}
+        self.titles: dict[str, str] = {}
+        self.shorts: set[str] = set()
+        self.handles: dict[str, tuple[str, str]] = {}
+        self.feed_calls: list[str] = []
 
     start = FakeGoogle.start
     stop = FakeGoogle.stop

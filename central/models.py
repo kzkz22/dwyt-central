@@ -70,6 +70,8 @@ class LoginState(Base):
     nonce: Mapped[str] = mapped_column(Text)
     verifier: Mapped[str] = mapped_column(Text)
     invite_token_hash: Mapped[str | None] = mapped_column(Text)
+    purpose: Mapped[str] = mapped_column(Text, default="login")  # login | youtube
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     created_at: Mapped[datetime] = _now()
 
 
@@ -291,3 +293,69 @@ class Job(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = _now()
+
+
+# ---- YouTube subscriptions (round 4) --------------------------------------------------------
+
+class Channel(Base):
+    __tablename__ = "channels"
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    title: Mapped[str | None] = mapped_column(Text)
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = _now()
+
+
+class ChannelVideo(Base):
+    __tablename__ = "channel_videos"
+    video_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    channel_id: Mapped[str] = mapped_column(ForeignKey("channels.id", ondelete="CASCADE"))
+    title: Mapped[str | None] = mapped_column(Text)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    is_short: Mapped[bool | None] = mapped_column(Boolean)
+    seen_at: Mapped[datetime] = _now()
+
+
+class Subscription(Base):
+    __tablename__ = "subscriptions"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    channel_id: Mapped[str] = mapped_column(ForeignKey("channels.id"))
+    source: Mapped[str] = mapped_column(Text)  # google | takeout | manual
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    rule: Mapped[str] = mapped_column(Text, default="ask")  # always | ask | never
+    allow_cloud: Mapped[bool] = mapped_column(Boolean, default=False)
+    notify: Mapped[str] = mapped_column(Text, default="digest")  # digest | instant | none
+    baseline_at: Mapped[datetime] = _now()
+    created_at: Mapped[datetime] = _now()
+    channel: Mapped[Channel] = relationship(lazy="selectin")
+
+
+INBOX_STATES = ("new", "queued", "done", "skipped", "failed", "short")
+
+
+class InboxEntry(Base):
+    __tablename__ = "inbox_entries"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    channel_id: Mapped[str] = mapped_column(ForeignKey("channels.id"))
+    video_id: Mapped[str] = mapped_column(Text)
+    title: Mapped[str | None] = mapped_column(Text)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    state: Mapped[str] = mapped_column(Text, default="new")
+    item_id: Mapped[int | None] = mapped_column(ForeignKey("items.id", ondelete="SET NULL"))
+    job_id: Mapped[int | None] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = _now()
+    updated_at: Mapped[datetime] = _now()
+    channel: Mapped[Channel] = relationship(lazy="selectin")
+
+
+class YoutubeLink(Base):
+    __tablename__ = "youtube_links"
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    email: Mapped[str | None] = mapped_column(Text)
+    refresh_token_enc: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = _now()
+    synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    sync_error: Mapped[str | None] = mapped_column(Text)
+    sync_count: Mapped[int | None] = mapped_column(Integer)

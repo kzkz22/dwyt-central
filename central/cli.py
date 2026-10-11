@@ -166,6 +166,21 @@ def check() -> None:
         print(f"indexelésre vár: {waiting} elem")
     except Exception as exc:  # noqa: BLE001
         print(f"index: HIBA: {exc}")
+    from . import secretbox
+    if secretbox.available():
+        print("YouTube-összekapcsolás (TOKEN_KEY): beállítva")
+    elif settings.token_key:
+        ok = False
+        print("HIBA: a TOKEN_KEY nem érvényes Fernet-kulcs (docs/telepites.md, 7. lépés)")
+    else:
+        print("YouTube-összekapcsolás: kikapcsolva (TOKEN_KEY üres); a csatornák Takeoutból és kézzel vehetők fel")
+    try:
+        with db.system_session() as s:
+            followed = s.scalar(text("SELECT count(DISTINCT channel_id) FROM subscriptions WHERE active"))
+            failing = s.scalar(text("SELECT count(*) FROM channels WHERE last_error IS NOT NULL"))
+        print(f"követett csatornák: {followed}" + (f", ebből {failing} hírcsatornája hibás" if failing else ""))
+    except Exception as exc:  # noqa: BLE001
+        print(f"csatornák: HIBA: {exc}")
     if settings.base_url.startswith("https://") and not settings.cookie_secure:
         print("figyelem: HTTPS mellett COOKIE_SECURE=true legyen")
     trusted = os.environ.get("FORWARDED_ALLOW_IPS", "").strip()

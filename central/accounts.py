@@ -81,7 +81,8 @@ def consume_state(db: DbSession, state: str) -> LoginState:
     if login is None:
         raise SignInError("A belépés lejárt vagy érvénytelen. Kezdd újra.")
     copy = LoginState(state_hash=login.state_hash, nonce=login.nonce, verifier=login.verifier,
-                      invite_token_hash=login.invite_token_hash, created_at=login.created_at)
+                      invite_token_hash=login.invite_token_hash, created_at=login.created_at,
+                      purpose=login.purpose, user_id=login.user_id)
     db.delete(login)
     db.flush()
     return copy

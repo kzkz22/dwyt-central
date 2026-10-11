@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% from "_macros.html" import job_line %}
+{% block title %}Postaláda{% endblock %}
+{% block content %}
+<div class="bar">
+  <h1>Új videók</h1>
+  {% if tab == 'uj' and entries %}
+  <form method="post" action="/postalada/kihagy-mind" class="inline confirm" data-confirm="Az összes új videót kihagyod?">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="secondary small">Mind kihagyása</button>
+  </form>
+  {% endif %}
+</div>
+<nav class="views" aria-label="Szűrés állapotra">
+  {% for key, label in tabs.items() %}
+  <a href="/postalada?allapot={{ key }}" class="{{ 'active' if tab == key }}">{{ label }}{% if tab_counts[key] %} ({{ tab_counts[key] }}){% endif %}</a>
+  {% endfor %}
+</nav>
+{% if gpu_waiting %}<p class="warn-box">{{ gpu_waiting }} videó helyi Whisperre vár: nincs feliratuk, és a GPU-gép bekapcsolásakor készülnek el.</p>{% endif %}
+{% if not entries %}<p class="card">{% if not followed %}Még nem követsz csatornát; a <a href="/csatornak">Csatornák</a> oldalon veheted fel őket.{% else %}Nincs itt semmi. Az új videók a követett csatornák hírcsatornáiból érkeznek.{% endif %}</p>{% endif %}
+<ul class="items">
+{% for e in entries %}
+  <li class="item">
+    <a href="https://www.youtube.com/watch?v={{ e.video_id }}" class="thumb" target="_blank" rel="noreferrer noopener"><img src="https://i.ytimg.com/vi/{{ e.video_id }}/mqdefault.jpg" alt="" loading="lazy" referrerpolicy="no-referrer"></a>
+    <div>
+      {% if e.item_id %}<a href="/elem/{{ e.item_id }}" class="title">{{ e.title or e.video_id }}</a>{% else %}<span class="title">{{ e.title or e.video_id }}</span>{% endif %}
+      <div class="meta">{{ e.channel.title or e.channel_id }}{% if e.published_at %} · {{ e.published_at|local }}{% endif %}</div>
+      {% set j = job_map.get(e.job_id) %}
+      {% if j and j.state in ('queued', 'running') %}<div class="meta">{{ job_line(j, now) }}{% if j.state == 'queued' and j.error %} · {{ j.error }}{% endif %}</div>
+      {% elif j and j.state == 'failed' %}<div class="meta error-text">{{ j.error }}</div>{% endif %}
+      <div class="actions">
+        {% if e.state in ('new', 'skipped', 'short', 'failed') %}
+        <form method="post" action="/postalada/{{ e.id }}/keres" class="inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="vissza" value="{{ tab }}">
+          <button class="small">{{ 'Újra' if e.state == 'failed' else 'Összefoglaló kérése' }}</button>
+        </form>
+        {% endif %}
+        {% if e.state == 'new' %}
+        <form method="post" action="/postalada/{{ e.id }}/kihagy" class="inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="secondary small">Kihagyás</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+  </li>
+{% endfor %}
+</ul>
+{% endblock %}

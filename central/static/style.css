@@ -159,3 +159,11 @@ mark { background: var(--warn-bg); color: inherit; padding: 0 1px; }
 .stack { display: flex; flex-direction: column; gap: 8px; max-width: 720px; margin-top: 8px; }
 .stack > * { margin: 0; }
 .item-actions { margin: 8px 0 14px; }
+.item.channel { justify-content: space-between; align-items: flex-start; }
+.item.channel.inactive .title { color: var(--muted); }
+.channel-form { margin: 6px 0 0; }
+@media (max-width: 720px) {
+  .top { flex-wrap: wrap; gap: 6px 12px; }
+  .top nav { order: 3; flex: 1 0 100%; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; white-space: nowrap; }
+  .top .muted { margin-left: auto; }
+}
