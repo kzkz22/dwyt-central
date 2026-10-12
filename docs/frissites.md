@@ -93,6 +93,10 @@ Egyszeri lépések, a fenti frissítés **előtt**:
 3. A téma (világos / sötét) és a becsukott menü böngészőnként tárolódik; először a rendszer témáját követi.
 4. Ha az Apache-on saját `Content-Security-Policy` fejlécet állítottál be, abban is maradjon `default-src 'self'` (a betűtípus és az ikonok a központról jönnek, külső címről semmi).
 
+## Frissítés a 0.12.3-ra (hosszabb összefoglaló-előnézet)
+
+Csak a felület: a Könyvtár sorában az összefoglaló előnézete álló telefonon 6 sor (eddig 2), szélesebb képernyőn továbbra is 2. Az előnézet a címsorokat kihagyja, a felsorolás pontjait viszont már tartalmazza. A fenti frissítés elég.
+
 ## Frissítés a 0.12.2-re (mobil álló nézet)
 
 Csak a felület: a Könyvtár és a Postaláda sorai álló telefonon a kép mellett csak a címet mutatják, a többi (csatorna, idő, címkék, összefoglaló) alattuk teljes szélességben. A fenti frissítés elég; a böngészőben egy újratöltés kell, ha a régi stíluslap maradt meg.

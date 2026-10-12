@@ -302,6 +302,7 @@ a.badge:hover { border-color: hsl(var(--primary) / .5); }
   .item.media > .thumb { grid-column: 1; grid-row: 1; }
   .item.media > div > .title { grid-column: 2; grid-row: 1; align-self: center; }
   .item.media > div > :not(.title) { grid-column: 1 / -1; margin: 0; }
+  .item.media .preview { -webkit-line-clamp: 6; line-clamp: 6; }
 }
 
 .jobs > li.card { margin: 10px 0; padding: 14px 16px; }

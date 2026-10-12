@@ -179,11 +179,14 @@ def test_library_filter_and_summary_preview(alice, anon):
     token = pair_runner(alice, anon)
     garden = submit(alice, summarize=True)
     deliver(anon, token)
-    summarize_next(anon, token, body="## Összefoglaló\nA **kertről** szól a videó.\n\n## Fő pontok\n- egy")
+    summarize_next(anon, token, body="## Összefoglaló\nA **kertről** szól a videó.\n\n## Fő pontok\n- egy\n- kettő")
     submit(alice, video="aaaaaaaaaaa")
     deliver(anon, token, title="Főzőműsor", channel="Szakács")
     page = alice.get("/").text
-    assert "A kertről szól a videó." in page and "Fő pontok" not in page and "2 elem" in page
+    assert "A kertről szól a videó. egy · kettő" in page and "Fő pontok" not in page and "2 elem" in page
+    from central import render
+    long = render.plain_preview("## A\n" + "szó " * 400, 700)
+    assert 600 < len(long) <= 702 and long.endswith(" …")
     only = alice.get("/", params={"q": "szakács"}).text
     assert "Főzőműsor" in only and "Kerti videó" not in only and "1 elem" in only
     nosum = alice.get("/", params={"szures": "nincs-osszefoglalo"}).text

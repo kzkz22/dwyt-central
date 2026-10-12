@@ -44,6 +44,7 @@ from .models import (ACTIVE, Channel, Conversation, ConversationMessage, InboxEn
 log = logging.getLogger("dwyt")
 HERE = Path(__file__).resolve().parent
 PAGE_SIZE = 30
+LIBRARY_PREVIEW_CHARS = 700  # the summary preview of a library row: 2 lines on wide screens, 6 on phones
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
@@ -596,8 +597,9 @@ def library_page(request: Request, oldal: int = 1, q: str = "", szures: str = ""
                           .offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE)).all()
         mains = {t.id: t for t in s.scalars(select(Transcript).where(
             Transcript.id.in_([i.main_transcript_id for i in found if i.main_transcript_id])))}
-        previews = {sm.id: render.plain_preview(sm.text) for sm in s.scalars(select(Summary).where(
-            Summary.id.in_([i.current_summary_id for i in found if i.current_summary_id])))}
+        previews = {sm.id: render.plain_preview(sm.text, LIBRARY_PREVIEW_CHARS)
+                    for sm in s.scalars(select(Summary).where(
+                        Summary.id.in_([i.current_summary_id for i in found if i.current_summary_id])))}
         has_runner = len(sharing.usable_runners(s, viewer.id))
         item_tags = personal.tags_by_item(s, [i.id for i in found])
         tag_list = personal.all_tags(s)

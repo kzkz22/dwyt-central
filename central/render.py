@@ -72,27 +72,28 @@ def summary_html(text: str, link: Callable[[int], tuple[str, bool]]) -> Markup:
 
 
 def plain_preview(text: str, limit: int = 220) -> str:
-    """First sentences of the summary section, for the library list."""
-    body = []
+    """The start of a summary as one plain paragraph (library list, notifications, the question
+    catalogue): headings left out, list items kept (" · " between them), at most `limit` characters."""
+    parts: list[str] = []
+    size = 0
     for line in text.split("\n"):
         line = line.strip()
-        if line.startswith("#"):
-            if body:
-                break
+        if not line or line.startswith("#"):
             continue
-        if line.startswith(("-", "*", "•")):
-            if body:
-                break
-            continue
-        if line:
-            body.append(_BOLD.sub(r"\1", line))
-    joined = " ".join(body)
+        bullet = line.startswith(("- ", "* ", "• "))
+        line = _BOLD.sub(r"\1", line[2:].strip() if bullet else line)
+        joiner = bullet and parts and not parts[-1].endswith((".", "!", "?", ":"))
+        parts.append(("· " if joiner else "") + line)
+        size += len(line) + 3
+        if size > limit:
+            break
+    joined = " ".join(parts)
     return joined if len(joined) <= limit else joined[:limit].rsplit(" ", 1)[0] + " …"
 
 
 # ---- answers to questions (round 6): a wider subset ----------------------------------------------
 
-_CITE = re.compile(r"\[#(\d{1,2})(?:[ ,;]+((?:\d{1,2}:)?[0-5]?\d:[0-5]\d))?\]")
+_CITE = re.compile(r"\[#(\d{1,5})(?:[ ,;]+((?:\d{1,2}:)?[0-5]?\d:[0-5]\d))?\]")
 _CODE = re.compile(r"`([^`\n]+)`")
 _ITALIC = re.compile(r"(?<![\w*])\*(?!\s)([^*\n]+?)(?<!\s)\*(?![\w*])|(?<!\w)_(?!\s)([^_\n]+?)(?<!\s)_(?!\w)")
 _OL = re.compile(r"^(\d{1,3})[.)]\s+(.*)$")
