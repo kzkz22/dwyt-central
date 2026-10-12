@@ -246,3 +246,13 @@ def test_own_rerun_replaces_a_taken_over_main_transcript(alice, bob, anon):
     page = bob.get(f"/elem/{item_id}").text
     assert "Bob saját szövege." in page and "Újra, a saját futtatómmal" not in page
     assert page.count("<li class=") >= 2 and "fő átirat</span>" in page  # both listed, the own one is the main
+
+
+def test_library_rows_use_the_media_layout(alice, anon):
+    # portrait phones: picture + title side by side, the rest under them (style.css .item.media)
+    token = pair_runner(alice, anon)
+    submit(alice)
+    deliver(anon, token)
+    assert 'class="item media"' in alice.get("/").text
+    css = alice.get("/static/style.css").text
+    assert ".item.media > div { display: contents; }" in css

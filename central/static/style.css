@@ -296,6 +296,12 @@ a.badge:hover { border-color: hsl(var(--primary) / .5); }
 @media (max-width: 600px) {
   .item { gap: 12px; padding: 12px; }
   .item .thumb img, .nothumb { width: 112px; }
+  /* portrait phone: picture and title side by side, everything else under them at full width */
+  .item.media { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 8px 12px; align-items: start; }
+  .item.media > div { display: contents; }
+  .item.media > .thumb { grid-column: 1; grid-row: 1; }
+  .item.media > div > .title { grid-column: 2; grid-row: 1; align-self: center; }
+  .item.media > div > :not(.title) { grid-column: 1 / -1; margin: 0; }
 }
 
 .jobs > li.card { margin: 10px 0; padding: 14px 16px; }

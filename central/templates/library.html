@@ -22,7 +22,7 @@
 {% if items %}
 <ul class="items">
 {% for item in items %}
-  <li class="item">
+  <li class="item media">
     <a class="thumb" href="/elem/{{ item.id }}">{% if thumb(item.source) %}<img src="{{ thumb(item.source) }}" alt="" loading="lazy">{% else %}<span class="nothumb">{{ 'saját' if not item.is_public else 'nincs kép' }}</span>{% endif %}</a>
     <div>
       <a class="title" href="/elem/{{ item.id }}">{{ item_title(item) }}</a>

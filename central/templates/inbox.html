@@ -19,7 +19,7 @@
 {% if not entries %}<p class="card">{% if not followed %}Még nem követsz csatornát; a <a href="/csatornak">Csatornák</a> oldalon veheted fel őket.{% else %}Nincs itt semmi. Az új videók a követett csatornák hírcsatornáiból érkeznek.{% endif %}</p>{% endif %}
 <ul class="items">
 {% for e in entries %}
-  <li class="item">
+  <li class="item media">
     <a href="https://www.youtube.com/watch?v={{ e.video_id }}" class="thumb" target="_blank" rel="noreferrer noopener"><img src="https://i.ytimg.com/vi/{{ e.video_id }}/mqdefault.jpg" alt="" loading="lazy" referrerpolicy="no-referrer"></a>
     <div>
       {% if e.item_id %}<a href="/elem/{{ e.item_id }}" class="title">{{ e.title or e.video_id }}</a>{% else %}<span class="title">{{ e.title or e.video_id }}</span>{% endif %}

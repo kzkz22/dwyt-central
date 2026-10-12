@@ -93,6 +93,10 @@ Egyszeri lépések, a fenti frissítés **előtt**:
 3. A téma (világos / sötét) és a becsukott menü böngészőnként tárolódik; először a rendszer témáját követi.
 4. Ha az Apache-on saját `Content-Security-Policy` fejlécet állítottál be, abban is maradjon `default-src 'self'` (a betűtípus és az ikonok a központról jönnek, külső címről semmi).
 
+## Frissítés a 0.12.2-re (mobil álló nézet)
+
+Csak a felület: a Könyvtár és a Postaláda sorai álló telefonon a kép mellett csak a címet mutatják, a többi (csatorna, idő, címkék, összefoglaló) alattuk teljes szélességben. A fenti frissítés elég; a böngészőben egy újratöltés kell, ha a régi stíluslap maradt meg.
+
 ## Frissítés a 0.12.1-re (könyvtár-kérdések a teljes könyvtárral)
 
 A könyvtárról szóló kérdés eddig csak a keresés legjobb néhány videóját látta, ezért az áttekintő kérdések („csoportosítsd az összes videót”) hiányos választ adtak. Mostantól a teljes könyvtár rövid listáját is megkapja (cím, csatorna, dátum, címkék, az összefoglaló eleje).
