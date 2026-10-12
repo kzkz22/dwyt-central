@@ -16,8 +16,8 @@ from __future__ import annotations
 
 import logging
 import threading
-from concurrent.futures import ThreadPoolExecutor
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -177,21 +177,38 @@ def sync_due(settings: Settings) -> None:
 # ---- polling and fan-out ------------------------------------------------------------------
 
 POLL_BATCH = 30  # channels per background round (every TICK_S)
+FAIL_RETRY_MIN = 15  # a channel whose feed did not answer is tried again this soon
+OUTAGE_PAUSE_S = 300  # after a feed outage, the next round waits this long (YouTube fails for every channel)
+_feed_down_until = 0.0
 
 
 def poll_due(settings: Settings, limit: int = POLL_BATCH) -> int:
-    """Check the feeds of followed channels not checked for FEED_POLL_MIN; returns new videos."""
+    """Check the feeds of followed channels not checked for FEED_POLL_MIN; returns new videos.
+    When YouTube's feed does not answer, the round stops and the next one waits OUTAGE_PAUSE_S."""
+    global _feed_down_until
+    if time.monotonic() < _feed_down_until:
+        return 0
     before = utcnow() - timedelta(minutes=settings.feed_poll_min)
     with db.system_session() as s:
         followed = select(Subscription.channel_id).where(Subscription.active.is_(True), Subscription.rule != "never")
         ids = s.scalars(select(Channel.id).where(
             Channel.id.in_(followed), (Channel.last_checked_at.is_(None)) | (Channel.last_checked_at < before))
             .order_by(Channel.last_checked_at.nulls_first()).limit(limit)).all()
-    return sum(poll_channel(settings, cid) for cid in ids)
+    total = 0
+    for cid in ids:
+        try:
+            total += poll_channel(settings, cid, raise_outage=True)
+        except youtube.FeedUnavailable:
+            _feed_down_until = time.monotonic() + OUTAGE_PAUSE_S
+            break
+    return total
 
 
 def poll_soon(user_id: int) -> int:
-    """Have the background thread check this user's followed channels at its next rounds."""
+    """Have the background thread check this user's followed channels at its next rounds (also during
+    a feed outage pause: the user asked for it)."""
+    global _feed_down_until
+    _feed_down_until = 0.0
     with db.user_session(user_id) as s:
         ids = list(s.scalars(select(Subscription.channel_id).where(Subscription.active.is_(True),
                                                                    Subscription.rule != "never")))
@@ -200,9 +217,15 @@ def poll_soon(user_id: int) -> int:
     return len(ids)
 
 
-def poll_channel(settings: Settings, channel_id: str) -> int:
+def poll_channel(settings: Settings, channel_id: str, raise_outage: bool = False) -> int:
+    """Read one channel's feed; returns the number of newly seen videos. A feed that does not answer
+    is recorded (failing_since) and tried again in FAIL_RETRY_MIN; with raise_outage the
+    FeedUnavailable is passed on after recording, so a polling round can stop."""
+    outage = None
     try:
         videos, error = youtube.feed(settings, channel_id), None
+    except youtube.FeedUnavailable as exc:
+        videos, error, outage = [], str(exc), exc
     except youtube.YoutubeError as exc:
         videos, error = [], str(exc)
     new: list[str] = []  # newly seen videos that need the Shorts check
@@ -214,7 +237,14 @@ def poll_channel(settings: Settings, channel_id: str) -> int:
         # only videos a follower could get in his inbox need the Shorts check (not the old ones of a new channel)
         oldest = s.scalar(select(func.min(Subscription.baseline_at)).where(
             Subscription.channel_id == channel_id, Subscription.active.is_(True), Subscription.rule != "never"))
-        ch.last_checked_at, ch.last_error = utcnow(), error
+        now = utcnow()
+        ch.last_error = error
+        if error is None:
+            ch.last_checked_at, ch.failing_since = now, None
+        else:
+            ch.failing_since = ch.failing_since or now
+            # due again in FAIL_RETRY_MIN instead of a whole FEED_POLL_MIN
+            ch.last_checked_at = now - timedelta(minutes=max(0, settings.feed_poll_min - FAIL_RETRY_MIN))
         if videos and videos[0].channel_title:
             ch.title = videos[0].channel_title[:300]
         for v in videos:
@@ -233,6 +263,8 @@ def poll_channel(settings: Settings, channel_id: str) -> int:
             if short is not None:
                 s.execute(update(ChannelVideo).where(ChannelVideo.video_id == vid).values(is_short=short))
     fan_out(settings, channel_id)
+    if outage is not None and raise_outage:
+        raise outage
     return seen
 
 

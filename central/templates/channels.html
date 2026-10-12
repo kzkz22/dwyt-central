@@ -9,6 +9,7 @@
   </form>
 </div>
 {% if message %}<p class="{{ 'error' if message_error else 'warn-box' }}" role="status">{{ message }}</p>{% endif %}
+{% if feed_waiting %}<p class="notice" role="status">{{ feed_waiting }} csatorna hírcsatornája most nem válaszol. A YouTube időnként, főleg éjjel, órákig minden csatornára hibát (404) ad; ez nem a csatornák hibája. A központ {{ retry_min }} percenként újrapróbálja, a közben megjelent videók nem vesznek el.</p>{% endif %}
 
 <div class="two-cards">
 <section class="card" id="youtube">
@@ -62,8 +63,10 @@
       <span class="avatar ch-avatar" aria-hidden="true">{{ ((sub.channel.title or '?')[:1])|upper }}</span>
       <div class="ch-main">
         <a href="https://www.youtube.com/channel/{{ sub.channel_id }}" target="_blank" rel="noreferrer noopener" class="title">{{ sub.channel.title or sub.channel_id }}</a>
-        <div class="meta">{{ sources[sub.source] }}{% if not sub.active %} · már nem vagy feliratkozva{% endif %}{% if new_counts.get(sub.channel_id) %} · <a href="/postalada">{{ new_counts[sub.channel_id] }} új</a>{% endif %}{% if sub.channel.last_checked_at %} · ellenőrizve: {{ sub.channel.last_checked_at|local }}{% endif %}</div>
-        {% if sub.channel.last_error %}<div class="error-text meta">{{ sub.channel.last_error }}</div>{% endif %}
+        {% set ch = sub.channel %}
+        <div class="meta">{{ sources[sub.source] }}{% if not sub.active %} · már nem vagy feliratkozva{% endif %}{% if new_counts.get(sub.channel_id) %} · <a href="/postalada">{{ new_counts[sub.channel_id] }} új</a>{% endif %}{% if ch.last_error and ch.failing_since %} · nem válaszol {{ ch.failing_since|local }} óta{% elif ch.last_checked_at %} · ellenőrizve: {{ ch.last_checked_at|local }}{% endif %}</div>
+        {% if ch.last_error and ch.failing_since and ch.failing_since < long_failing_before %}<div class="error-text meta">{{ ch.last_error }}. Egy napja nem válaszol: ha ez napokig így marad, lehet, hogy a csatornát törölték vagy rejtett.</div>
+        {% elif ch.last_error and not ch.failing_since %}<div class="error-text meta">{{ ch.last_error }}</div>{% endif %}
       </div>
       <form method="post" action="/csatornak/{{ sub.id }}/beallitas" class="channel-form">
         <input type="hidden" name="csrf_token" value="{{ csrf }}">

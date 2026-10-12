@@ -178,6 +178,9 @@ class FakeYoutube:
         @app.get("/feeds/videos.xml")
         async def feed(channel_id: str):
             fake.feed_calls.append(channel_id)
+            if fake.feed_fail:  # YouTube's feed outage: 404 for every channel
+                fake.feed_fail -= 1
+                return Response(status_code=404)
             if channel_id not in fake.feeds:
                 return Response(status_code=404)
             entries = "".join(
@@ -212,6 +215,7 @@ class FakeYoutube:
         self.shorts: set[str] = set()
         self.handles: dict[str, tuple[str, str]] = {}
         self.feed_calls: list[str] = []
+        self.feed_fail = 0  # this many next feed requests answer 404
 
     start = FakeGoogle.start
     stop = FakeGoogle.stop

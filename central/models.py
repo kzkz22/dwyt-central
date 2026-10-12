@@ -315,6 +315,7 @@ class Channel(Base):
     title: Mapped[str | None] = mapped_column(Text)
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error: Mapped[str | None] = mapped_column(Text)
+    failing_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # first failure of a run
     created_at: Mapped[datetime] = _now()
 
 

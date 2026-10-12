@@ -177,8 +177,11 @@ def check() -> None:
     try:
         with db.system_session() as s:
             followed = s.scalar(text("SELECT count(DISTINCT channel_id) FROM subscriptions WHERE active"))
-            failing = s.scalar(text("SELECT count(*) FROM channels WHERE last_error IS NOT NULL"))
-        print(f"követett csatornák: {followed}" + (f", ebből {failing} hírcsatornája hibás" if failing else ""))
+            failing = s.scalar(text("SELECT count(*) FROM channels WHERE last_error IS NOT NULL AND "
+                                    "(failing_since IS NULL OR failing_since < now() - interval '1 day')"))
+            waiting = s.scalar(text("SELECT count(*) FROM channels WHERE failing_since >= now() - interval '1 day'"))
+        print(f"követett csatornák: {followed}" + (f", ebből {failing} hírcsatornája hibás" if failing else "")
+              + (f", {waiting} most nem válaszol (a YouTube átmeneti hibája, újrapróbálja)" if waiting else ""))
     except Exception as exc:  # noqa: BLE001
         print(f"csatornák: HIBA: {exc}")
     if settings.base_url.startswith("https://") and not settings.cookie_secure:

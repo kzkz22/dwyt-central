@@ -14,6 +14,7 @@ import csv
 import hashlib
 import io
 import re
+import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -42,6 +43,15 @@ class YoutubeError(Exception):
     """A user-facing reason (Hungarian)."""
 
 
+class FeedUnavailable(YoutubeError):
+    """The feed did not answer this time. YouTube's feed endpoint returns 404 or 500 for every channel
+    for hours at a time (since late 2025, mostly at night), so this says nothing about the channel."""
+
+
+FEED_TRIES = 2
+FEED_RETRY_S = 3.0
+
+
 @dataclass
 class FeedVideo:
     video_id: str
@@ -56,15 +66,24 @@ def _client(timeout: float = 20) -> httpx.Client:
 
 def feed(settings: Settings, channel_id: str) -> list[FeedVideo]:
     """The channel's latest videos (about 15) from its public feed; no sign-in, no quota."""
-    try:
-        with _client() as c:
-            resp = c.get(f"{settings.youtube_url}/feeds/videos.xml", params={"channel_id": channel_id})
-    except httpx.HTTPError as exc:
-        raise YoutubeError(f"a csatorna hírcsatornája nem érhető el: {exc}") from exc
-    if resp.status_code == 404:
-        raise YoutubeError("a csatorna nem található (törölték vagy rejtett)")
-    if resp.status_code != 200:
+    reason = ""
+    for attempt in range(FEED_TRIES):
+        if attempt:
+            time.sleep(FEED_RETRY_S)
+        try:
+            with _client() as c:
+                resp = c.get(f"{settings.youtube_url}/feeds/videos.xml", params={"channel_id": channel_id})
+        except httpx.HTTPError as exc:
+            reason = f"nem érhető el ({type(exc).__name__})"
+            continue
+        if resp.status_code == 200:
+            break
+        if resp.status_code == 404 or resp.status_code >= 500 or resp.status_code == 429:
+            reason = f"HTTP {resp.status_code}"
+            continue
         raise YoutubeError(f"a YouTube HTTP {resp.status_code} választ adott")
+    else:
+        raise FeedUnavailable(f"a YouTube most nem adja ki a hírcsatornát ({reason})")
     try:
         root = ET.fromstring(resp.content)
     except ET.ParseError as exc:

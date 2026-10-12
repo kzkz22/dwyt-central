@@ -267,3 +267,43 @@ def test_check_now_runs_in_the_background_and_old_videos_need_no_shorts_check(al
     assert len(fake_youtube.feed_calls) == calls  # the page did not wait for it
     poll()
     assert len(fake_youtube.feed_calls) == calls + 1  # the background round picked it up at once
+
+
+def test_a_feed_outage_is_not_a_missing_channel(alice, emails, fake_youtube):
+    """YouTube's feed answers 404 for every channel for hours at a time: retry once, stop the round,
+    wait, try that channel again soon, and only call it possibly deleted after a day."""
+    from central import subscriptions
+    fake_youtube.feeds[GARDEN] = [("vid-new-001", "Új videó", iso(-1))]
+    fake_youtube.feeds[COOKING] = [("vid-new-002", "Leves", iso(-1))]
+    follow(alice, GARDEN)
+    follow(alice, COOKING)
+    fake_youtube.feed_fail = 1  # one 404, then the retry gets it
+    assert poll() == 2
+    assert rows("SELECT count(*) FROM channels WHERE last_error IS NOT NULL")[0][0] == 0
+
+    run_sql("UPDATE channels SET last_checked_at = NULL")
+    fake_youtube.feed_calls.clear()
+    fake_youtube.feed_fail = 100  # the outage
+    assert poll() == 0
+    assert len(fake_youtube.feed_calls) == 2  # one channel, tried twice; the round stopped there
+    assert poll() == 0 and len(fake_youtube.feed_calls) == 2  # paused: nothing asked
+    failing = rows("SELECT id, last_error, failing_since, last_checked_at FROM channels WHERE last_error IS NOT NULL")
+    assert len(failing) == 1 and "HTTP 404" in failing[0][1] and failing[0][2] is not None
+    # due again in FAIL_RETRY_MIN, not a whole FEED_POLL_MIN
+    due_in = failing[0][3] + timedelta(minutes=60) - datetime.now(timezone.utc)
+    retry = timedelta(minutes=subscriptions.FAIL_RETRY_MIN)
+    assert retry - timedelta(minutes=1) < due_in <= retry
+    page = alice.get("/csatornak").text
+    assert "1 csatorna hírcsatornája most nem válaszol" in page and "nem válaszol" in page
+    assert "törölték" not in page
+
+    run_sql("UPDATE channels SET failing_since = now() - interval '2 days'")
+    assert "lehet, hogy a csatornát törölték" in alice.get("/csatornak").text
+
+    subscriptions._feed_down_until = 0.0  # the pause is over and YouTube answers again
+    fake_youtube.feed_fail = 0
+    run_sql("UPDATE channels SET last_checked_at = NULL")
+    poll()
+    assert rows("SELECT count(*) FROM channels WHERE last_error IS NOT NULL OR failing_since IS NOT NULL")[0][0] == 0
+    page = alice.get("/csatornak").text
+    assert "nem válaszol" not in page and "ellenőrizve:" in page

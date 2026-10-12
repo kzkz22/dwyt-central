@@ -93,6 +93,14 @@ Egyszeri lépések, a fenti frissítés **előtt**:
 3. A téma (világos / sötét) és a becsukott menü böngészőnként tárolódik; először a rendszer témáját követi.
 4. Ha az Apache-on saját `Content-Security-Policy` fejlécet állítottál be, abban is maradjon `default-src 'self'` (a betűtípus és az ikonok a központról jönnek, külső címről semmi).
 
+## Frissítés a 0.10.1-re (YouTube-hírcsatorna kiesése)
+
+A YouTube hírcsatornái (`/feeds/videos.xml`) 2025 vége óta naponta órákra minden csatornára 404-et vagy 500-at adnak, főleg éjjel. A korábbi verzió ezt „a csatorna nem található” hibaként írta ki minden csatornánál.
+
+1. A fenti frissítés; a migráció (0010) magától lefut, és a régi, félrevezető hibaüzeneteket törli.
+2. Mostantól egy kiesés a Csatornák oldal tetején egy sárga jelzésként látszik. A központ 15 percenként újrapróbálja; amíg a YouTube nem válaszol, nem kérdez sorban minden csatornát, hanem 5 percenként csak egyet. A közben megjelent videók nem vesznek el, mert a hírcsatorna a legutóbbi kb. 15 videót adja.
+3. Pirosan csak az a csatorna jelenik meg, amelyik egy napnál régebben nem válaszol (ilyenkor lehet, hogy tényleg törölték vagy rejtett).
+
 ## Protokollváltás
 
 Ha egy frissítés új protokollverziót hoz, a központ az előzőt is elfogadja egy ideig; a túl régi futtató a Futtatók oldalon „régi protokoll” jelzést kap, és a futtató maga is kiírja: `uv tool upgrade dwyt-runner`.

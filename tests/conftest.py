@@ -140,8 +140,10 @@ def clean(configured, fake_google, fake_youtube, monkeypatch):
     fake_google.reset()
     fake_youtube.reset()
     web._pair_failures.clear()
-    from central import ratelimit
+    from central import ratelimit, subscriptions, youtube
     ratelimit.reset()
+    monkeypatch.setattr(youtube, "FEED_RETRY_S", 0)
+    subscriptions._feed_down_until = 0.0
     yield
     get_settings.cache_clear()
 

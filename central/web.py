@@ -13,7 +13,7 @@ import secrets
 import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -971,7 +971,9 @@ def _channels_context(viewer: Viewer, message: str | None = None, error: bool = 
             "notify_options": subscriptions.NOTIFY, "link": subscriptions.link_of(viewer.id),
             "google_ready": bool(settings.google_client_id and settings.google_client_secret),
             "token_ready": secretbox.available(), "message": message, "message_error": error,
-            "poll_min": settings.feed_poll_min}
+            "poll_min": settings.feed_poll_min, "retry_min": subscriptions.FAIL_RETRY_MIN,
+            "long_failing_before": utcnow() - timedelta(days=1),
+            "feed_waiting": sum(1 for sub in subs if sub.active and sub.channel.failing_since)}
 
 
 @app.get("/csatornak", response_class=HTMLResponse)

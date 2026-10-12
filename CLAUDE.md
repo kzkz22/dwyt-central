@@ -16,7 +16,9 @@ LLM models chosen from the runners' `llm_models` capability, job progress on the
 results dropped by `indexing.drop_unreferenced_results`); 4a: `subscriptions.py` (shared channels/feed videos,
 per-user subscriptions + inbox, fan-out, the captions → local → cloud chain via `chain_step` in `jobs.fail`,
 `Background` thread), `youtube.py` (RSS, Shorts, handles, Takeout, Web OAuth youtube.readonly), `secretbox.py`
-(TOKEN_KEY Fernet for refresh tokens); 4b: `notify.py` (per-user ntfy / Home Assistant, secrets sealed, outbox +
+(TOKEN_KEY Fernet for refresh tokens); YouTube's feed endpoint fails (404/500) for every channel for hours, so a
+failed feed is `FeedUnavailable` (transient): one retry, the round stops, `OUTAGE_PAUSE_S`, `channels.failing_since`,
+retry in `FAIL_RETRY_MIN`, "maybe deleted" only after a day; 4b: `notify.py` (per-user ntfy / Home Assistant, secrets sealed, outbox +
 retries + daily digest in the `Background` thread, user URLs never private unless NOTIFY_PRIVATE_NETS or admin).
 4c: `mcp_server.py` (/mcp, stateless Streamable HTTP, per-user hashed tokens with can_start /
 include_private, caller in a contextvar, two SDK servers by permission, rate limit per token), `submit.py` (shared
