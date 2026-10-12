@@ -15,10 +15,10 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session as DbSession
 
-from . import db, jobs, library, personal, ratelimit, search
+from . import db, jobs, library, personal, ratelimit, render, search
 from .config import Settings
 from .db import utcnow
 from .models import (ACTIVE, Conversation, ConversationMessage, Item, Job, Runner, Source, Summary, Transcript,
@@ -32,6 +32,9 @@ EXCERPT_HITS = 40
 LIBRARY_MAX_ITEMS = 8
 LIBRARY_MAX_CHARS = 60_000
 SUMMARY_MAX_CHARS = 6_000
+CATALOG_MAX_CHARS = 120_000   # the list of the whole library sent with every library question
+CATALOG_SUMMARY_CHARS = 400   # at most this much of each summary; less as the library grows
+CATALOG_MIN_SUMMARY = 60      # below this the summaries are left out, titles only
 
 
 class ChatError(Exception):
@@ -96,6 +99,52 @@ def library_sources(user_id: int, question: str, settings: Settings, previous: s
     return out
 
 
+def library_catalog(user_id: int, sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The whole library (own recordings left out) as a short list, so that overview questions
+    ("group all my videos by topic") see every item, not only the search hits. The items already
+    among the search sources keep their number; the others are numbered after them. Every entry
+    gets the same share of CATALOG_MAX_CHARS for the start of its summary; with a very large
+    library only titles remain, and past that the newest items (catalog_partial in job_input)."""
+    in_sources = {int(src["item_id"]): int(src["n"]) for src in sources if src.get("item_id")}
+    with db.user_session(user_id) as s:
+        found = list(s.scalars(select(Item).where(Item.is_public.is_(True), Item.main_transcript_id.is_not(None))
+                               .order_by(Item.created_at.desc(), Item.id.desc())))
+        tags = personal.tags_by_item(s, [i.id for i in found])
+        summaries = {sm.id: sm.text for sm in s.scalars(select(Summary).where(
+            Summary.id.in_([i.current_summary_id for i in found if i.current_summary_id] or [0])))}
+        rows = []
+        for item in found:
+            src = item.source
+            meta = src.meta or {}
+            rows.append({"item_id": item.id, "title": library.item_title(item), "channel": meta.get("channel"),
+                         "url": src.url, "youtube": src.key.split(":", 1)[1] if src.kind == "youtube" else None,
+                         "date": str(meta.get("published") or item.created_at.date().isoformat())[:10],
+                         "tags": tags.get(item.id, []), "summary_text": summaries.get(item.current_summary_id)})
+    base = sum(len(r["title"] or "") + len(r["channel"] or "") + sum(len(x) + 2 for x in r["tags"]) + 40
+               for r in rows)
+    per_item = min(CATALOG_SUMMARY_CHARS, (CATALOG_MAX_CHARS - base) // max(1, len(rows)))
+    out: list[dict[str, Any]] = []
+    used, next_n = 0, max(in_sources.values(), default=0) + 1
+    for r in rows:
+        text = r.pop("summary_text")
+        r["summary"] = render.plain_preview(text, per_item) if text and per_item >= CATALOG_MIN_SUMMARY else None
+        used += len(r["title"] or "") + len(r["channel"] or "") + len(r["summary"] or "") + 40
+        if out and used > CATALOG_MAX_CHARS:
+            break
+        if r["item_id"] in in_sources:
+            r["n"] = in_sources[r["item_id"]]
+        else:
+            r["n"], next_n = next_n, next_n + 1
+        out.append({**r, "catalog": True})
+    return out
+
+
+def shown_sources(sources: list[dict[str, Any]], answer: str | None) -> list[dict[str, Any]]:
+    """The sources listed under an answer: the search sources, and the catalogue entries the answer cites."""
+    cited = {int(n) for n in re.findall(r"\[#(\d{1,5})", answer or "")}
+    return [x for x in sources or [] if not x.get("catalog") or int(x.get("n") or 0) in cited]
+
+
 def offered(s: DbSession, user_id: int, role: str) -> list[str]:
     from . import sharing
     return jobs.offered_models(sharing.usable_runners(s, user_id), role)
@@ -121,9 +170,10 @@ def ask(settings: Settings, user_id: int, text: str, item_id: int | None = None,
     sources: list[dict[str, Any]] = []
     if item_id is None:
         sources = library_sources(user_id, text, settings, _previous_question(user_id, conversation_id))
-        if not sources:
-            raise ChatError("A kérdéshez nem találtam semmit a könyvtáradban (a saját felvételek itt "
-                            "kimaradnak). Fogalmazd meg másképp, vagy kérdezz az elem oldalán.")
+        catalog = library_catalog(user_id, sources)
+        if not sources and not catalog:
+            raise ChatError("A könyvtáradban még nincs olyan videó, amelyről kérdezni lehetne (a saját felvételek "
+                            "itt kimaradnak). Saját felvételről az elem oldalán kérdezhetsz.")
     with db.user_session(user_id) as s:
         item = None
         if item_id is not None:
@@ -146,7 +196,7 @@ def ask(settings: Settings, user_id: int, text: str, item_id: int | None = None,
             s.add(conv)
             s.flush()
         msg = ConversationMessage(conversation_id=conv.id, user_id=user_id, role="user", content=text,
-                                  sources=sources, model=model or None)
+                                  sources=sources + ([] if item_id is not None else catalog), model=model or None)
         s.add(msg)
         s.flush()
         payload: dict[str, Any] = {"conversation_id": conv.id, "message_id": msg.id, "role": role}
@@ -241,9 +291,10 @@ def markdown(s: DbSession, conv: Conversation, title: str, when: datetime | None
             lines += [f"### Válasz ({a.model_used or a.model or 'modell'}, {at(a.created_at)})", "", a.content, ""]
         elif turn.job is not None and turn.job.state == "failed":
             lines += [f"*Nem jött válasz: {turn.job.error or 'hiba'}*", ""]
-        if turn.question.sources:
+        shown = shown_sources(turn.question.sources, turn.answer.content if turn.answer else None)
+        if shown:
             lines += ["Források:", ""]
-            for src in turn.question.sources:
+            for src in shown:
                 link = src.get("url") or f"/elem/{src.get('item_id')}"
                 lines.append(f"- #{src.get('n')} {src.get('title')}: {link}")
             lines.append("")
@@ -317,10 +368,18 @@ def job_input(s: DbSession, job: Job, settings: Settings) -> dict[str, Any]:
                     "language": src.get("language"), "summary": src.get("summary"), "partial": True,
                     "transcript": [{"start": e["start"], "speaker": None, "text": e["text"], "hu": e.get("hu")}
                                    for e in src.get("excerpts") or []]}
-                   for src in msg.sources]
+                   for src in msg.sources if not src.get("catalog")]
     chosen = {"model": job.payload["model"]} if job.payload.get("model") else {}
-    return {**chosen, "scope": "item" if conv.item_id is not None else "library", "role": job.payload["role"],
+    data = {**chosen, "scope": "item" if conv.item_id is not None else "library", "role": job.payload["role"],
             "language": "hu", "sources": sources, "messages": _history(s, conv.id, msg.id)}
+    if conv.item_id is None:
+        catalog = [x for x in msg.sources if x.get("catalog")]
+        total = s.scalar(select(func.count()).select_from(Item).where(
+            Item.user_id == job.user_id, Item.is_public.is_(True), Item.main_transcript_id.is_not(None))) or 0
+        data["catalog"] = [{"n": x["n"], "title": x.get("title"), "channel": x.get("channel"), "date": x.get("date"),
+                            "tags": x.get("tags") or [], "summary": x.get("summary")} for x in catalog]
+        data["library_total"] = max(total, len(catalog))
+    return data
 
 
 def store_answer(s: DbSession, runner: Runner, job: Job, result: dict[str, Any]) -> ConversationMessage:

@@ -1375,7 +1375,8 @@ def _chat_ctx(viewer: Viewer, item_id: int | None, wanted: str = "", error: str 
                 src_link = _source_link(turn.question.sources or [])
                 rows.append({"q": turn.question, "a": turn.answer, "job": turn.job,
                              "html": render.chat_html(turn.answer.content, ts_link, src_link) if turn.answer else None,
-                             "sources": turn.question.sources or []})
+                             "sources": chat.shown_sources(turn.question.sources,
+                                                           turn.answer.content if turn.answer else None)})
             pending = chat.pending(s, conv.id)
         ctx = {"chat_item": item, "chat_conv": conv, "chat_rows": rows, "chat_list": listed,
                "chat_pending": pending, "chat_picker": _picker(_runners(s, viewer.id), role, "ask"), "chat_role": role,

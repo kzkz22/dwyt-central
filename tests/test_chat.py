@@ -116,9 +116,47 @@ def test_library_questions_leave_own_recordings_out(alice, bob, anon, fake_embed
     assert 'class="cite" href="https://www.youtube.com/watch?v=dQw4w9WgXcQ&amp;t=0s"' in page
     assert f'class="cite" href="/elem/{garden}"' in page and "[#9]" in page  # an unknown source stays text
     assert f'<a href="/elem/{garden}">Kerti munkák</a>' in page  # the sources under the answer
-    # nothing to go on: no job
+    # the whole (public) library goes with it as a catalogue: overview questions see every item
+    assert [x["title"] for x in data["catalog"]] == ["Kerti munkák"] and data["catalog"][0]["n"] == 1
+    assert data["library_total"] == 1
+    # no search hit: the catalogue still answers ("group all my videos")
     r = post(alice, "/kereses/kerdes", {"question": "xyzzy qwerty plugh"}, headers={"HX-Request": "true"})
-    assert "nem találtam semmit" in r.text
+    data = claim(anon, a, ASK_CAPS).json()["input"]
+    assert data["sources"] == [] and data["catalog"][0]["title"] == "Kerti munkák"
+
+
+def test_catalogue_covers_the_whole_library(alice, anon, fake_embed, monkeypatch):
+    from central import chat
+    a = pair_runner(alice, anon)
+    ids = []
+    for i in range(16):
+        ids.append(submit(alice, video=f"vid{i:08d}"))
+        deliver(anon, a, texts=(f"Téma {i} részletesen.",), title=f"Videó {i}", channel="Csatorna")
+    rows("INSERT INTO item_tags (item_id, tag, user_id) SELECT id, 'kert', user_id FROM items WHERE id = :i "
+         "RETURNING item_id", i=ids[0])
+    _index(fake_embed, monkeypatch)
+    r = post(alice, "/kereses/kerdes", {"question": "Csoportosítsd az összes videómat téma szerint!"})
+    assert r.status_code == 303
+    data = claim(anon, a, ASK_CAPS).json()
+    job, data = data, data["input"]
+    assert data["library_total"] == 16 and len(data["catalog"]) == 16
+    numbers = sorted(x["n"] for x in data["catalog"])
+    assert numbers == list(range(1, 17))  # search sources keep their number, the rest follow
+    tagged = next(x for x in data["catalog"] if x["title"] == "Videó 0")
+    assert tagged["tags"] == ["kert"] and tagged["date"]
+    # only the cited catalogue entries are listed under the answer
+    first = next(x for x in data["catalog"] if x["title"] == "Videó 5")["n"]
+    anon.put(f"/runner/v1/jobs/{job['job_id']}/result", headers=runner_headers(a),
+             json={"text": f"Mind a 16 videó; például [#{first}].", "model": "kerdes"})
+    page = alice.get("/kereses").text
+    assert ">Videó 5</a>" in page and "Források (" in page
+    shown = chat.shown_sources([{"n": 1, "title": "a"}, {"n": 2, "catalog": True}, {"n": 3, "catalog": True}],
+                               "lásd [#3]")
+    assert [x["n"] for x in shown] == [1, 3]
+    # a large library: shorter summaries, then titles only, never over the limit
+    monkeypatch.setattr(chat, "CATALOG_MAX_CHARS", 1500)
+    cat = chat.library_catalog(rows("SELECT user_id FROM items LIMIT 1")[0][0], [])
+    assert sum(len(x["title"]) + len(x["summary"] or "") + 40 for x in cat) <= 1500 + 200
 
 
 def test_own_recording_questions_use_the_private_role(alice, anon):

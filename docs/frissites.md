@@ -93,6 +93,14 @@ Egyszeri lépések, a fenti frissítés **előtt**:
 3. A téma (világos / sötét) és a becsukott menü böngészőnként tárolódik; először a rendszer témáját követi.
 4. Ha az Apache-on saját `Content-Security-Policy` fejlécet állítottál be, abban is maradjon `default-src 'self'` (a betűtípus és az ikonok a központról jönnek, külső címről semmi).
 
+## Frissítés a 0.12.1-re (könyvtár-kérdések a teljes könyvtárral)
+
+A könyvtárról szóló kérdés eddig csak a keresés legjobb néhány videóját látta, ezért az áttekintő kérdések („csoportosítsd az összes videót”) hiányos választ adtak. Mostantól a teljes könyvtár rövid listáját is megkapja (cím, csatorna, dátum, címkék, az összefoglaló eleje).
+
+1. A fenti frissítés; migráció nincs.
+2. A futtatót is frissíteni kell (0.7.1 vagy újabb), mert az utasítást ő írja: `uv tool install --force git+https://github.com/kzkz22/dwyt-runner`, majd újraindítás. A régebbi futtató a listát nem adja tovább a modellnek, és ha a kérdéshez nincs keresési találat, hibát ad.
+3. A korábbi beszélgetésekben a régi válaszok maradnak; új kérdés (akár ugyanabban a beszélgetésben) már a teljes listával megy.
+
 ## Frissítés a 0.12-re (futtató megosztása)
 
 1. A fenti frissítés; a migráció (0012) magától lefut (megosztások és havi felhasználás táblái).

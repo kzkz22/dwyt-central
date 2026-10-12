@@ -32,7 +32,9 @@ Lucide icons, `static/theme.js` (loaded in <head>, not deferred: theme + collaps
 Inter (OFL; the CSP allows no external fonts). Check new pages at 390 px width: no horizontal scroll.
 Round 6 (plan 15a): `chat.py` questions about an item or the library. The central gathers the background (item:
 main transcript + translation + summary, over ITEM_MAX_CHARS the item's best search passages; library: hybrid search,
-own recordings left out, snapshot stored in the question's `sources`) and queues an `ask` job; the runner answers
+own recordings left out, snapshot stored in the question's `sources`; plus `library_catalog` (decision 17.6): the whole
+public library as short entries stored in `sources` with `catalog: true`, sent as `catalog` + `library_total`;
+`shown_sources` lists the search sources and the cited catalogue entries) and queues an `ask` job; the runner answers
 (no tools: transcripts are untrusted). Conversations/messages tables under RLS; `render.chat_html` (escaped Markdown
 subset, links only from [12:34] / [#n 12:34]); `_chat.html` panel polls with htmx while a question is open; ask jobs
 are hidden from the Jobs page and never notify (`jobs.QUIET_KINDS`); per-user limit `ratelimit` "ask".

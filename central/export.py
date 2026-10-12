@@ -98,14 +98,17 @@ def build(user_id: int, fmt: str) -> IO[bytes]:
             if fmt == "md":
                 z.writestr(f"dwyt/beszelgetesek/{conv.id:05d}.md", chat.markdown(s, conv, about))
             else:
+                msgs = list(s.scalars(select(ConversationMessage).where(
+                    ConversationMessage.conversation_id == conv.id).order_by(ConversationMessage.id)))
+                answers = {q.id: a.content for q, a in zip(msgs, msgs[1:])
+                           if q.role == "user" and a.role == "assistant"}
                 talks.append({"cim": conv.title, "elem_id": conv.item_id, "kezdve": conv.created_at.isoformat(),
                               "uzenetek": [{"szerep": "kérdés" if m.role == "user" else "válasz", "szoveg": m.content,
                                             "modell": m.model_used or m.model, "ido": m.created_at.isoformat(),
                                             "forrasok": [{"sorszam": x.get("n"), "elem_id": x.get("item_id"),
-                                                          "cim": x.get("title")} for x in m.sources or []]}
-                                           for m in s.scalars(select(ConversationMessage).where(
-                                               ConversationMessage.conversation_id == conv.id)
-                                               .order_by(ConversationMessage.id))]})
+                                                          "cim": x.get("title")}
+                                                         for x in chat.shown_sources(m.sources, answers.get(m.id))]}
+                                           for m in msgs]})
         if fmt == "json":
             z.writestr("dwyt/konyvtar.json", json.dumps({"exportalva": datetime.now().isoformat(timespec="seconds"),
                                                          "elemek": everything, "beszelgetesek": talks},
