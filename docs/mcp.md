@@ -13,7 +13,7 @@ A **Beállítások → MCP-hozzáférés** részen hozz létre egy tokent, és a
 
 A cím: `https://dwyt.iodate.date/mcp`, a fejléc: `Authorization: Bearer TOKEN`.
 
-**Hermes** (`%USERPROFILE%\.hermes\config.yaml`; a tokent a `%USERPROFILE%\.hermes\.env`-be érdemes tenni `DWYT_MCP_TOKEN=...` sorként):
+**Hermes** (a `config.yaml` a Hermes saját mappájában: Windows-on `%LOCALAPPDATA%\hermes`, Linuxon és macOS-en `~/.hermes`; a tokent ugyanott a `.env`-be érdemes tenni `DWYT_MCP_TOKEN=...` sorként):
 
 ```yaml
 mcp_servers:
