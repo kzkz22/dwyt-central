@@ -8,46 +8,7 @@
 {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
 {% if notice %}<p class="warn-box" role="status">{{ notice }}</p>{% endif %}
 
-{% macro pairing() %}
-<section class="card">
-  <h2>Új futtató párosítása</h2>
-  <ol>
-    <li>Telepítés: <code>uv tool install git+https://github.com/kzkz22/dwyt-runner</code></li>
-    <li>Párosítás: <code>dwyt-runner pair {{ base_url }}</code> – a futtató kiír egy kódot.</li>
-    <li>Írd be ide a kódot, és adj nevet a futtatónak:</li>
-  </ol>
-  <form method="post" action="/futtatok/parositas" class="grid">
-    <input type="hidden" name="csrf_token" value="{{ csrf }}">
-    <label>Párosítókód <input name="code" placeholder="ABC-123" maxlength="12" required autocomplete="off"></label>
-    <label>Név <input name="name" placeholder="otthoni gép" maxlength="80"></label>
-    <p><button>Jóváhagyás</button></p>
-  </form>
-</section>
-{% endmacro %}
-
-{% if not runners %}{{ pairing() }}{% endif %}
-
-<h2>Párosított futtatók</h2>
-{% for r in runners %}
-{% set caps = r.capabilities or {} %}
-<section class="card runner{{ ' inactive' if r.revoked_at }}">
-  <div class="bar"><span class="runner-name"><strong>{{ r.name }}</strong>
-    {% if r.revoked_at %}<span class="badge">visszavonva</span>{% elif r.id in online %}<span class="badge own">elérhető</span>{% else %}<span class="badge warn">nem jelentkezik</span>{% endif %}</span>
-    {% if not r.revoked_at %}<form method="post" action="/futtatok/{{ r.id }}/visszavonas" class="inline confirm" data-confirm="Visszavonod ezt a futtatót? Utána újra párosítani kell."><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="danger small">Visszavonás</button></form>{% endif %}</div>
-  <div class="meta">
-    {% if r.version %}dwyt-runner {{ r.version }}{% if r.protocol and r.protocol != protocol %} (régi protokoll){% endif %} · {% endif %}utoljára: {{ r.last_seen_at|local if r.last_seen_at else 'még soha' }}
-    {% if caps.llm_server %} · LLM-szerver: {{ caps.llm_server }}{% endif %}
-  </div>
-  {% if not r.revoked_at and caps %}
-  <h3 class="runner-h">{{ icon("file", 16) }} Átírás</h3>
-  {% set modes = caps.transcribe_modes or [] %}
-  <ul class="cap-list">
-    <li><span class="badge {{ 'own' if 'captions' in modes else '' }}">{{ 'van' if 'captions' in modes else 'nincs' }}</span> <strong>YouTube-felirat</strong> <span class="muted">– ingyenes, gyors, beszélők nélkül</span></li>
-    <li><span class="badge {{ 'own' if 'local' in modes else '' }}">{{ 'van' if 'local' in modes else 'nincs' }}</span> <strong>Helyi Whisper</strong> <span class="muted">– {% if 'local' in modes %}a saját GPU-n ({{ (caps.whisper_models or [])|join(', ') }}), beszélőkkel; ha a GPU-gép ki van kapcsolva, megvárja{% else %}nincs beállítva (whisper_url){% endif %}</span></li>
-    <li><span class="badge {{ 'own' if 'cloud' in modes else '' }}">{{ 'van' if 'cloud' in modes else 'nincs' }}</span> <strong>Felhős átírás</strong> <span class="muted">– {% if 'cloud' in modes %}AssemblyAI, a futtatóban megadott kulccsal, a futtató tulajdonosának költségére{% else %}nincs AssemblyAI-kulcs{% endif %}</span></li>
-  </ul>
-
-  <h3 class="runner-h">{{ icon("sparkles", 16) }} Nyelvi modellek</h3>
+{% macro model_table(r, caps) %}
   {% if models[r.id] %}
   <p class="muted">Ezeket a neveket választhatod az összefoglalónál, a fordításnál és a kérdéseknél. A név mögött ez fut:</p>
   <div class="table-wrap">
@@ -79,10 +40,176 @@
   </details>
   {% elif caps.llm_roles %}<p class="muted">Nyelvi modell van ({{ caps.llm_roles|map('replace', 'public', 'nyilvános videók')|map('replace', 'private', 'saját felvételek')|join(', ') }}), de a futtató nem sorolja fel a neveit.</p>
   {% else %}<p class="muted">Nincs nyelvi modell beállítva (llm_url, llm_public_model): összefoglaló, fordítás és kérdés nem kérhető ettől a futtatótól.</p>{% endif %}
+{% endmacro %}
+
+{% macro share_fields(sh) %}
+      <fieldset class="share-opts">
+        <legend>Mit használhat</legend>
+        <label class="choice"><input type="checkbox" name="allow_captions" {% if sh is none or sh.allow_captions %}checked{% endif %}> YouTube-felirat</label>
+        <label class="choice"><input type="checkbox" name="allow_local" {% if sh is none or sh.allow_local %}checked{% endif %}> Helyi Whisper (a GPU-gépen)</label>
+        <label class="choice"><input type="checkbox" name="allow_llm" {% if sh is none or sh.allow_llm %}checked{% endif %}> Helyi nyelvi modellek (összefoglaló, fordítás, kérdések)</label>
+        <label class="choice"><input type="checkbox" name="allow_own" {% if sh is not none and sh.allow_own %}checked{% endif %}> Az ő saját felvételei is (feltöltés)</label>
+        <p class="muted">Saját felvételnél a hang és az átirat a te gépeden halad át. Csak akkor kapcsold be, ha ő ezt szeretné.</p>
+      </fieldset>
+      <div class="grid">
+        <label>Felhős átírás havonta (óra) <input type="number" name="cloud_hours" min="0" max="1000" step="0.5" value="{{ '%g' % sh.cloud_hours if sh is not none else 0 }}"></label>
+        <label>Felhős nyelvi modell havonta (válasz) <input type="number" name="llm_answers" min="0" max="100000" step="1" value="{{ sh.llm_answers if sh is not none else 0 }}"></label>
+      </div>
+      <p class="muted">0 = nincs felhő. Felhős nyelvi modell nélkül a munkái csak a futtató helyi modelljét kapják (amit a saját felvételek is), és ha a GPU-gép ki van kapcsolva, megvárják. A keret minden hónap elején újraindul.</p>
+{% endmacro %}
+
+{% macro hours(h) %}{{ ('%.1f' % h).replace('.', ',') }}{% endmacro %}
+
+{% macro allowed_text(sh) -%}
+{%- set parts = [] -%}
+{%- if sh.allow_captions %}{% set _ = parts.append('YouTube-felirat') %}{% endif -%}
+{%- if sh.allow_local %}{% set _ = parts.append('helyi Whisper') %}{% endif -%}
+{%- if sh.allow_llm %}{% set _ = parts.append('helyi nyelvi modellek') %}{% endif -%}
+{{ parts|join(', ') or 'csak felhős átírás' }}
+{%- endmacro %}
+
+{% macro share_table(r) %}
+  <h3 class="runner-h">{{ icon("users", 16) }} Megosztás</h3>
+  <p class="muted">Akivel megosztod, az ő munkáit is elvégzi ez a futtató, ha neki nincs saját futtatója, vagy az nem tudja elvégezni. Az eredmény az ő könyvtárába kerül, te nem látod. A felhős munkák a te kulcsaidat használják, ezért havi keretet adsz rájuk; a 0 kikapcsolja.</p>
+  {% if shares.get(r.id) %}
+  <div class="table-wrap">
+  <table class="shares">
+    <thead><tr><th>Kivel</th><th>Mit használhat</th><th>Felhős átírás (AssemblyAI)</th><th>Felhős nyelvi modell</th></tr></thead>
+    <tbody>
+    {% for sh in shares[r.id] %}
+      <tr>
+        <td data-label="Kivel"><strong>{{ sh.name }}</strong>{% if sh.name != sh.email %}<div class="muted">{{ sh.email }}</div>{% endif %}
+          {% if sh.accepted %}<span class="badge own">elfogadta</span>{% else %}<span class="badge warn">vár az elfogadásra</span>{% endif %}</td>
+        <td data-label="Mit használhat">{{ allowed_text(sh) }}<div class="muted">saját felvételek: {{ 'igen' if sh.allow_own else 'nem' }}</div></td>
+        <td data-label="Felhős átírás (AssemblyAI)">{% if sh.cloud_hours %}{{ hours(sh.used_hours) }} / {{ hours(sh.cloud_hours) }} óra<progress value="{{ sh.used_hours }}" max="{{ sh.cloud_hours }}"></progress><div class="muted">ebben a hónapban</div>{% else %}<span class="badge">kikapcsolva</span> <span class="muted">keret: 0</span>{% endif %}</td>
+        <td data-label="Felhős nyelvi modell">{% if sh.llm_answers %}{{ sh.used_answers }} / {{ sh.llm_answers }} válasz<progress value="{{ sh.used_answers }}" max="{{ sh.llm_answers }}"></progress>{% if sh.used_tokens %}<div class="muted">{{ num(sh.used_tokens) }} token</div>{% endif %}{% else %}<span class="badge">kikapcsolva</span> <span class="muted">keret: 0 – csak helyi modell, a GPU-gépet megvárja</span>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% for sh in shares[r.id] %}
+  <details class="regen">
+    <summary>Módosítás: {{ sh.name }}</summary>
+    <form method="post" action="/futtatok/megosztas/{{ sh.id }}/modositas" class="stack">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      {{ share_fields(sh) }}
+      <p><button class="small">Mentés</button></p>
+    </form>
+    <form method="post" action="/futtatok/megosztas/{{ sh.id }}/torles" class="inline confirm" data-confirm="Megszünteted a megosztást? A már futó munkák még befejeződnek.">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="danger small">Megosztás megszüntetése</button>
+    </form>
+  </details>
+  {% endfor %}
+  {% endif %}
+  <details class="regen">
+    <summary>Megosztás valakivel</summary>
+    <form method="post" action="/futtatok/{{ r.id }}/megosztas" class="stack">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <label>Kivel (a dwyt-ben használt e-mail-címe) <input type="email" name="email" maxlength="320" required placeholder="anna@example.com" autocomplete="off"></label>
+      {{ share_fields(none) }}
+      <p class="warn-box">A futtató a te gépeden fut: a feldolgozott videó, átirat és szöveg rajta halad át, és a te AI-routered is látja. Ezt ő is látni fogja, mielőtt elfogadja.</p>
+      <p><button class="small">Felajánlom</button></p>
+    </form>
+  </details>
+{% endmacro %}
+
+{% macro shared_caps(r) %}
+  {% set caps = r.capabilities %}{% set sh = r.share %}{% set modes = caps.transcribe_modes or [] %}
+  <ul class="cap-list">
+    <li><span class="badge {{ 'own' if 'captions' in modes else '' }}">{{ 'van' if 'captions' in modes else 'nincs' }}</span> <strong>YouTube-felirat</strong> <span class="muted">– ingyenes, gyors, beszélők nélkül</span></li>
+    <li><span class="badge {{ 'own' if 'local' in modes else '' }}">{{ 'van' if 'local' in modes else 'nincs' }}</span> <strong>Helyi Whisper</strong> <span class="muted">– {% if 'local' in modes %}{{ r.owner_name }} GPU-gépén ({{ (caps.whisper_models or [])|join(', ') }}), beszélőkkel; ha a gép ki van kapcsolva, megvárja{% else %}ennél a megosztásnál nem{% endif %}</span></li>
+    {% if sh.cloud_hours %}
+    <li><span class="badge cloud">keret</span> <strong>Felhős átírás</strong> <span class="muted">– ebben a hónapban {{ hours(sh.used_hours) }} óra a havi {{ hours(sh.cloud_hours) }}-ből{% if 'cloud' not in modes %}; elfogyott, a következő hónapban indul újra{% endif %}</span>
+      <progress value="{{ sh.used_hours }}" max="{{ sh.cloud_hours }}" class="quota"></progress></li>
+    {% else %}<li><span class="badge">nincs</span> <strong>Felhős átírás</strong> <span class="muted">– ennél a megosztásnál nem</span></li>{% endif %}
+    {% if sh.allow_llm %}
+    {% if sh.llm_answers %}
+    <li><span class="badge cloud">keret</span> <strong>Felhős nyelvi modell</strong> <span class="muted">– {{ sh.used_answers }} válasz a havi {{ sh.llm_answers }}-ből; ha elfogy, csak helyi modell dolgozik</span>
+      <progress value="{{ sh.used_answers }}" max="{{ sh.llm_answers }}" class="quota"></progress></li>
+    {% else %}<li><span class="badge own">van</span> <strong>Nyelvi modell</strong> <span class="muted">– csak helyi; ha a GPU-gép ki van kapcsolva, megvárja</span></li>{% endif %}
+    {% else %}<li><span class="badge">nincs</span> <strong>Nyelvi modell</strong> <span class="muted">– összefoglaló, fordítás és kérdés ennél a megosztásnál nem</span></li>{% endif %}
+    <li><span class="badge {{ 'own' if sh.allow_own else '' }}">{{ 'van' if sh.allow_own else 'nincs' }}</span> <strong>Saját felvételek</strong> <span class="muted">– {{ 'a feltöltött felvételeidet is feldolgozza' if sh.allow_own else 'ezeket ez a futtató nem dolgozza fel' }}</span></li>
+  </ul>
+{% endmacro %}
+
+{% macro pairing() %}
+<section class="card">
+  <h2>Új futtató párosítása</h2>
+  <ol>
+    <li>Telepítés: <code>uv tool install git+https://github.com/kzkz22/dwyt-runner</code></li>
+    <li>Párosítás: <code>dwyt-runner pair {{ base_url }}</code> – a futtató kiír egy kódot.</li>
+    <li>Írd be ide a kódot, és adj nevet a futtatónak:</li>
+  </ol>
+  <form method="post" action="/futtatok/parositas" class="grid">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <label>Párosítókód <input name="code" placeholder="ABC-123" maxlength="12" required autocomplete="off"></label>
+    <label>Név <input name="name" placeholder="otthoni gép" maxlength="80"></label>
+    <p><button>Jóváhagyás</button></p>
+  </form>
+</section>
+{% endmacro %}
+
+{% for r in offers %}{% set sh = r.share %}
+<section class="card share-offer">
+  <h2>{{ icon("users", 18) }} {{ r.owner_name }} megosztotta veled a futtatóját</h2>
+  <p><strong>{{ r.name }}</strong>: {{ allowed_text(sh) }}. Felhős átírás {% if sh.cloud_hours %}havonta legfeljebb {{ hours(sh.cloud_hours) }} óra{% else %}nincs{% endif %}, felhős nyelvi modell {% if sh.llm_answers %}havonta legfeljebb {{ sh.llm_answers }} válasz{% else %}nincs{% endif %}. {{ 'A saját felvételeidet is feldolgozza.' if sh.allow_own else 'A saját felvételeidet nem dolgozza fel.' }}</p>
+  <p class="warn-box">A futtató {{ r.owner_name }} gépén fut: amit vele dolgoztatsz (a videó, az átirat, az összefoglalóhoz és a kérdésekhez küldött szöveg), azon a gépen halad át, és {{ r.owner_name }} elvben láthatja. A könyvtáradat nem látja.</p>
+  <div class="actions">
+    <form method="post" action="/futtatok/megosztas/{{ sh.id }}/elfogadas" class="inline"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button>Elfogadom</button></form>
+    <form method="post" action="/futtatok/megosztas/{{ sh.id }}/torles" class="inline"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="secondary">Elutasítom</button></form>
+  </div>
+</section>
+{% endfor %}
+
+{% if not runners and not shared %}{{ pairing() }}{% endif %}
+
+<h2>Párosított futtatók</h2>
+{% if not runners and shared %}<p class="muted">Még nincs saját futtatód. Amíg nincs, a megosztott futtató végzi a munkáidat; ha lesz sajátod, az kap elsőbbséget.</p>{% endif %}
+{% for r in runners %}
+{% set caps = r.capabilities or {} %}
+<section class="card runner{{ ' inactive' if r.revoked_at }}">
+  <div class="bar"><span class="runner-name"><strong>{{ r.name }}</strong>
+    {% if r.revoked_at %}<span class="badge">visszavonva</span>{% elif r.id in online %}<span class="badge own">elérhető</span>{% else %}<span class="badge warn">nem jelentkezik</span>{% endif %}</span>
+    {% if not r.revoked_at %}<form method="post" action="/futtatok/{{ r.id }}/visszavonas" class="inline confirm" data-confirm="Visszavonod ezt a futtatót? Utána újra párosítani kell."><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="danger small">Visszavonás</button></form>{% endif %}</div>
+  <div class="meta">
+    {% if r.version %}dwyt-runner {{ r.version }}{% if r.protocol and r.protocol != protocol %} (régi protokoll){% endif %} · {% endif %}utoljára: {{ r.last_seen_at|local if r.last_seen_at else 'még soha' }}
+    {% if caps.llm_server %} · LLM-szerver: {{ caps.llm_server }}{% endif %}
+  </div>
+  {% if not r.revoked_at and caps %}
+  <h3 class="runner-h">{{ icon("file", 16) }} Átírás</h3>
+  {% set modes = caps.transcribe_modes or [] %}
+  <ul class="cap-list">
+    <li><span class="badge {{ 'own' if 'captions' in modes else '' }}">{{ 'van' if 'captions' in modes else 'nincs' }}</span> <strong>YouTube-felirat</strong> <span class="muted">– ingyenes, gyors, beszélők nélkül</span></li>
+    <li><span class="badge {{ 'own' if 'local' in modes else '' }}">{{ 'van' if 'local' in modes else 'nincs' }}</span> <strong>Helyi Whisper</strong> <span class="muted">– {% if 'local' in modes %}a saját GPU-n ({{ (caps.whisper_models or [])|join(', ') }}), beszélőkkel; ha a GPU-gép ki van kapcsolva, megvárja{% else %}nincs beállítva (whisper_url){% endif %}</span></li>
+    <li><span class="badge {{ 'own' if 'cloud' in modes else '' }}">{{ 'van' if 'cloud' in modes else 'nincs' }}</span> <strong>Felhős átírás</strong> <span class="muted">– {% if 'cloud' in modes %}AssemblyAI, a futtatóban megadott kulccsal, a futtató tulajdonosának költségére{% else %}nincs AssemblyAI-kulcs{% endif %}</span></li>
+  </ul>
+
+  <h3 class="runner-h">{{ icon("sparkles", 16) }} Nyelvi modellek</h3>
+  {{ model_table(r, caps) }}
   {% if caps.llm_roles and 'llm_model_info' not in caps %}<p class="warn-box">Ez a futtató régebbi{% if r.version %} ({{ r.version }}){% endif %}: nem küld modell-leírást{% if 'ask' not in (caps.kinds or []) %}, és kérdésekre sem tud válaszolni{% endif %}. Frissítés: <code>uv tool install --force git+https://github.com/kzkz22/dwyt-runner</code>, majd a futtató újraindítása.</p>{% endif %}
   {% endif %}
+  {% if not r.revoked_at %}{{ share_table(r) }}{% endif %}
 </section>
-{% else %}<p class="muted">Még nincs futtatód.</p>{% endfor %}
+{% else %}{% if not shared %}<p class="muted">Még nincs futtatód.</p>{% endif %}{% endfor %}
 
-{% if runners %}{{ pairing() }}{% endif %}
+{% if shared %}
+<h2>Megosztott futtatók</h2>
+{% for r in shared %}
+<section class="card runner">
+  <div class="bar"><span class="runner-name"><strong>{{ r.name }}</strong>
+    {% if r.id in online %}<span class="badge own">elérhető</span>{% else %}<span class="badge warn">nem jelentkezik</span>{% endif %}</span>
+    <form method="post" action="/futtatok/megosztas/{{ r.share.id }}/torles" class="inline confirm" data-confirm="Leválasztod ezt a futtatót? Utána csak a saját futtatód dolgozik neked."><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="secondary small">Leválasztás</button></form></div>
+  <div class="meta">{{ r.owner_name }} futtatója{% if r.version %} · dwyt-runner {{ r.version }}{% endif %} · utoljára: {{ r.last_seen_at|local if r.last_seen_at else 'még soha' }}</div>
+  <h3 class="runner-h">{{ icon("file", 16) }} Mit használhatsz</h3>
+  {{ shared_caps(r) }}
+  {% if r.share.allow_llm %}
+  <h3 class="runner-h">{{ icon("sparkles", 16) }} Nyelvi modellek</h3>
+  {{ model_table(r, r.capabilities) }}
+  {% endif %}
+</section>
+{% endfor %}
+{% endif %}
+
+{% if runners or shared %}{{ pairing() }}{% endif %}
 {% endblock %}

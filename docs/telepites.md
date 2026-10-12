@@ -266,7 +266,8 @@ Ellenőrzés: `curl -sI https://dwyt.iodate.date/healthz` → `200`, és a vála
 4. **Új átirat:** egy YouTube-link „YouTube-felirat” móddal; a futtató pár másodpercen belül elkezdi.
 5. A menü bal oldalt van; asztali gépen a fejlécében lévő gombbal ikonsávvá csukható, mobilon a bal felső gombbal nyílik. A téma a menü alján váltható.
 6. **Kérdezés:** az elem oldalán „Kérdezz a videóról”, a Keresés oldalon „Kérdezz a könyvtáradról”; a választ a futtató írja (dwyt-runner 0.6-tól, a modell az `llm_ask_model`, AI-routeren a `kerdes` név). A beszélgetések a **Beszélgetések** menüpontban vannak, Markdownként letölthetők.
-7. Ami ezután mindenkinek a saját felületén van: **Csatornák** (YouTube-feliratkozások), **Postaláda**, **Beállítások** (fordítás, értesítés ntfy-jal vagy Home Assistanttel, kétlépcsős belépés, MCP-tokenek, export, fióktörlés). Az MCP-kliensek beállítása: [mcp.md](mcp.md).
+7. **Futtató megosztása** (például a családon belül, hogy ne kelljen mindenkinek saját futtató és GPU-gép): Futtatók → a futtató kártyáján „Megosztás valakivel”, a másik felhasználó dwyt-fiókjának e-mail-címével. Beállítod, mit használhat, és a havi felhős keretet (0 = nincs felhő); ő a saját Futtatók oldalán fogadja el.
+8. Ami ezután mindenkinek a saját felületén van: **Csatornák** (YouTube-feliratkozások), **Postaláda**, **Beállítások** (fordítás, értesítés ntfy-jal vagy Home Assistanttel, kétlépcsős belépés, MCP-tokenek, export, fióktörlés). Az MCP-kliensek beállítása: [mcp.md](mcp.md).
 
 ## Hibakeresés
 

@@ -20,6 +20,7 @@ LIMITS = {
     "mcp": (300, 300),            # MCP calls per token (a model may call several tools per answer)
     "mcp-bad-token": (20, 300),   # wrong MCP tokens per address
     "ask": (60, 3600),            # questions per user (each one is a job for his runner)
+    "share": (30, 3600),          # runner share offers per user (each one looks up an e-mail address)
 }
 
 _hits: dict[tuple[str, str], deque[float]] = {}

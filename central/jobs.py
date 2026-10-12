@@ -175,13 +175,28 @@ def requeue_expired(s: DbSession, user_id: int, settings: Settings) -> None:
 
 
 def claim(s: DbSession, runner: Runner, caps: dict[str, Any], settings: Settings) -> Job | None:
-    requeue_expired(s, runner.user_id, settings)
+    """The next job for this runner: its owner's, or (decision 17.5) of a user it is shared with,
+    within that share's effective capabilities, in turn between the users."""
+    from . import sharing
+    caps_of = {runner.user_id: caps, **sharing.claim_caps(s, runner, caps)}
+    users = list(caps_of)
+    for user_id in users:
+        requeue_expired(s, user_id, settings)
     now = utcnow()
+    kinds = sorted({k for c in caps_of.values() for k in c.get("kinds") or []})
     candidates = s.scalars(select(Job).where(
-        Job.user_id == runner.user_id, Job.state == "queued", Job.run_after <= now,
-        Job.cancel_requested.is_(False), Job.kind.in_(caps.get("kinds") or []))
-        .order_by(Job.id).limit(50).with_for_update(skip_locked=True)).all()
-    job = next((j for j in candidates if fits(j, caps, runner.id)), None)
+        Job.user_id.in_(users), Job.state == "queued", Job.run_after <= now,
+        Job.cancel_requested.is_(False), Job.kind.in_(kinds))
+        .order_by(Job.id).limit(200).with_for_update(skip_locked=True)).all()
+    job = None
+    for user_id in sharing.turn_order(s, runner, users) if len(users) > 1 else users:
+        user_caps = caps_of[user_id]
+        job = next((j for j in candidates if j.user_id == user_id and fits(j, user_caps, runner.id)
+                    and (user_id == runner.user_id or not sharing.own_runner_can(s, user_id, j, fits))), None)
+        if job is not None:
+            if user_id != runner.user_id and job.kind in sharing.LLM_KINDS and user_caps.get("shared_private_llm"):
+                job.input_role = "private"  # no cloud budget: the runner's local-only model
+            break
     if job is None:
         return None
     job.state, job.stage, job.runner_id = "running", "starting", runner.id
@@ -194,6 +209,13 @@ def claim(s: DbSession, runner: Runner, caps: dict[str, Any], settings: Settings
 
 def job_input(s: DbSession, job: Job) -> dict[str, Any]:
     """What the runner gets for a claimed job."""
+    data = _job_input(s, job)
+    if getattr(job, "input_role", None):
+        data["role"] = job.input_role
+    return data
+
+
+def _job_input(s: DbSession, job: Job) -> dict[str, Any]:
     if job.kind == "ask":
         from . import chat
         return chat.job_input(s, job, get_settings())
@@ -228,11 +250,16 @@ def job_input(s: DbSession, job: Job) -> dict[str, Any]:
 
 def running_job(s: DbSession, runner: Runner, job_id: int) -> Job:
     job = s.get(Job, job_id, with_for_update=True)
-    if job is None or job.user_id != runner.user_id:
+    if job is None or not may_see(runner, job):
         raise ProtocolError(404, "no such job")
     if job.state != "running" or job.runner_id != runner.id:
         raise ProtocolError(409, "the job is not running on this runner")
     return job
+
+
+def may_see(runner: Runner, job: Job) -> bool:
+    """The runner's own user's job, or one it claimed (a shared user's)."""
+    return job.user_id == runner.user_id or job.runner_id == runner.id
 
 
 def heartbeat(s: DbSession, runner: Runner, job_id: int, stage: str | None, progress: dict | None,
@@ -407,7 +434,7 @@ def finish(job: Job, ref: dict[str, Any]) -> None:
 def store_result(s: DbSession, runner: Runner, job_id: int, result: dict[str, Any]) -> dict[str, Any]:
     """Idempotent: a repeated delivery of a finished job's result is acknowledged, not stored twice."""
     job = s.get(Job, job_id, with_for_update=True)
-    if job is None or job.user_id != runner.user_id:
+    if job is None or not may_see(runner, job):
         raise ProtocolError(404, "no such job")
     if job.state == "done" and (job.progress or {}).get("result"):
         return job.progress["result"]
@@ -422,6 +449,8 @@ def store_result(s: DbSession, runner: Runner, job_id: int, result: dict[str, An
         store_translation(s, runner, job, result)
     else:
         store_summary(s, runner, job, result)
+    from . import sharing
+    sharing.record_usage(s, runner, job, result)
     return job.progress["result"]
 
 

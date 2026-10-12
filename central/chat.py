@@ -96,15 +96,15 @@ def library_sources(user_id: int, question: str, settings: Settings, previous: s
     return out
 
 
-def offered(s: DbSession, role: str) -> list[str]:
-    runners = list(s.scalars(select(Runner).where(Runner.revoked_at.is_(None))))
-    return jobs.offered_models(runners, role)
+def offered(s: DbSession, user_id: int, role: str) -> list[str]:
+    from . import sharing
+    return jobs.offered_models(sharing.usable_runners(s, user_id), role)
 
 
-def can_answer(s: DbSession) -> bool:
-    """Has the user a runner that announced the ask kind?"""
-    return any("ask" in ((r.capabilities or {}).get("kinds") or [])
-               for r in s.scalars(select(Runner).where(Runner.revoked_at.is_(None))))
+def can_answer(s: DbSession, user_id: int) -> bool:
+    """Has the user a runner (own or shared) that announced the ask kind?"""
+    from . import sharing
+    return any("ask" in ((r.capabilities or {}).get("kinds") or []) for r in sharing.usable_runners(s, user_id))
 
 
 def ask(settings: Settings, user_id: int, text: str, item_id: int | None = None,
@@ -133,7 +133,7 @@ def ask(settings: Settings, user_id: int, text: str, item_id: int | None = None,
             if item.main_transcript_id is None:
                 raise ChatError("Ennek az elemnek még nincs átirata; utána lehet kérdezni róla.")
         role = "public" if item is None or item.is_public else "private"
-        if model and model not in offered(s, role):
+        if model and model not in offered(s, user_id, role):
             raise ChatError("Ezt a modellt a futtatód nem ajánlja fel.")
         if conversation_id:
             conv = s.get(Conversation, conversation_id)

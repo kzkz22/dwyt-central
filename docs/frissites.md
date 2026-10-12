@@ -93,6 +93,12 @@ Egyszeri lépések, a fenti frissítés **előtt**:
 3. A téma (világos / sötét) és a becsukott menü böngészőnként tárolódik; először a rendszer témáját követi.
 4. Ha az Apache-on saját `Content-Security-Policy` fejlécet állítottál be, abban is maradjon `default-src 'self'` (a betűtípus és az ikonok a központról jönnek, külső címről semmi).
 
+## Frissítés a 0.12-re (futtató megosztása)
+
+1. A fenti frissítés; a migráció (0012) magától lefut (megosztások és havi felhasználás táblái).
+2. A futtatón és az AI-routeren nincs teendő.
+3. Megosztás: Futtatók oldal → a futtató kártyáján „Megosztás valakivel” (a másik felhasználónak már dwyt-fiókkal kell rendelkeznie). Ő a Futtatók oldalon fogadja el; amíg nem fogadta el, a futtató nem dolgozik neki. A Könyvtár oldal szól neki a felajánlásról.
+
 ## Frissítés a 0.11.1-re (mi fut a modellnevek mögött)
 
 A Futtatók oldal futtatónként mutatja, mit tud, és táblázatban, mi fut az egyes nyelvi modellnevek mögött; a modellválasztók opciói és az alattuk lévő sor ugyanezt mondják röviden. Migráció nincs.

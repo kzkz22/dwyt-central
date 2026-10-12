@@ -452,3 +452,30 @@ class McpToken(Base):
     created_at: Mapped[datetime] = _now()
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class RunnerShare(Base):
+    """A runner offered by its owner to another user (decision 17.5)."""
+    __tablename__ = "runner_shares"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    runner_id: Mapped[int] = mapped_column(ForeignKey("runners.id", ondelete="CASCADE"))
+    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    allow_captions: Mapped[bool] = mapped_column(Boolean, default=True)
+    allow_local: Mapped[bool] = mapped_column(Boolean, default=True)
+    allow_llm: Mapped[bool] = mapped_column(Boolean, default=True)
+    allow_own: Mapped[bool] = mapped_column(Boolean, default=False)
+    cloud_hours: Mapped[float] = mapped_column(Float, default=0)
+    llm_answers: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = _now()
+    updated_at: Mapped[datetime] = _now()
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ShareUsage(Base):
+    __tablename__ = "share_usage"
+    share_id: Mapped[int] = mapped_column(ForeignKey("runner_shares.id", ondelete="CASCADE"), primary_key=True)
+    month: Mapped[str] = mapped_column(Text, primary_key=True)
+    cloud_seconds: Mapped[float] = mapped_column(Float, default=0)
+    llm_answers: Mapped[int] = mapped_column(Integer, default=0)
+    llm_tokens: Mapped[int] = mapped_column(BigInteger, default=0)

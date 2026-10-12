@@ -527,3 +527,22 @@ button.icon-only .icon { margin: 0; }
     font-size: .7rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
 }
 select { max-width: 100%; }
+
+/* Runner sharing (decision 17.5) */
+.shares td, .shares th { vertical-align: top; font-size: .85rem; }
+.shares progress { margin-top: 4px; max-width: 160px; display: block; }
+.share-opts { border: 0; padding: 0; margin: 0; display: grid; gap: 8px; }
+.share-opts legend { font-weight: 600; margin-bottom: 6px; padding: 0; }
+.share-offer h2 { display: flex; gap: 8px; align-items: center; }
+.cap-list .quota { max-width: 220px; display: block; margin: 4px 0 0 52px; }
+@media (max-width: 640px) {
+  .shares thead { display: none; }
+  .shares, .shares tbody, .shares tr, .shares td { display: block; }
+  .runner > .table-wrap table.shares { min-width: 0; }
+  .shares tr { padding: 6px 0; border-bottom: 1px solid hsl(var(--border)); }
+  .shares tr:last-child { border-bottom: 0; }
+  .shares td { border: 0; padding: 4px 12px; }
+  .shares td[data-label]::before { content: attr(data-label); display: block; color: hsl(var(--muted-foreground));
+    font-size: .7rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  .cap-list .quota { margin-left: 0; }
+}

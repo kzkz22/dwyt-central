@@ -26,6 +26,7 @@
   {% for value, label in modes.items() %}
     <label class="choice"><input type="radio" name="mode" value="{{ value }}" {% if (form.mode or 'captions') == value %}checked{% endif %}> {{ label }}</label>
   {% endfor %}
+  {% if cloud_note %}<p class="model-hint muted">{{ cloud_note }}</p>{% endif %}
   </fieldset>
   <div class="grid">
     <label>Nyelv (üresen automatikus) <input name="language" value="{{ form.language or '' }}" placeholder="hu, en …" maxlength="3"></label>

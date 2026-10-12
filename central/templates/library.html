@@ -2,6 +2,9 @@
 {% block title %}Könyvtár{% endblock %}
 {% block content %}
 <div class="bar"><h1>Könyvtár</h1><a class="button" href="/uj">Új átirat</a></div>
+{% if share_offers %}
+<p class="warn-box">Valaki megosztotta veled a futtatóját. <a href="/futtatok">Nézd meg, és fogadd el</a>, ha szeretnéd használni.</p>
+{% endif %}
 {% if not has_runner %}
 <p class="warn-box">Még nincs futtatód. A munkákat a saját futtatód végzi el: <a href="/futtatok">futtató párosítása</a>.</p>
 {% endif %}

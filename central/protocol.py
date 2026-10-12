@@ -328,7 +328,7 @@ class SummaryResult(BaseModel):
 def _media_path(runner: Runner, job_id: int) -> tuple[int, str]:
     with db.system_session() as s:
         job = s.get(Job, job_id)
-        if job is None or job.user_id != runner.user_id:
+        if job is None or not jobs.may_see(runner, job):
             return 404, "no such job"
         if job.state != "running" or job.runner_id != runner.id:
             return 409, "the job is not running on this runner"
@@ -445,7 +445,7 @@ RESULT_MODELS = {"transcribe": TranscribeResult, "summarize": SummaryResult, "tr
 def _job_kind(runner: Runner, job_id: int) -> str | None:
     with db.system_session() as s:
         job = s.get(Job, job_id)
-        return job.kind if job is not None and job.user_id == runner.user_id else None
+        return job.kind if job is not None and jobs.may_see(runner, job) else None
 
 
 @router.put("/jobs/{job_id}/result")

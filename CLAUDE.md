@@ -39,6 +39,12 @@ are hidden from the Jobs page and never notify (`jobs.QUIET_KINDS`); per-user li
 `modelinfo.py` (decision 17.4): the runner's `llm_model_info` / `llm_server` / `llm_defaults` capabilities (what runs behind
 each LLM name, written by dwyt-airouter, reduced to known fields at claim); the Runners page table and the model pickers
 (`_macros.model_options` / `model_hint`, `data-hint` updated by app.js). Missing fields = older runner.
+`sharing.py` (decision 17.5): runner shares (migration 0012 `runner_shares`, `share_usage` per calendar month; changes
+only through the system role with explicit checks, users read under RLS). `effective_caps` cuts a runner's capabilities
+down to a share (no cloud LLM budget = public LLM jobs go out with role private, `job.input_role`); `jobs.claim` takes
+the owner's and accepted shared users' jobs in turn, leaving a job to the user's own online runner that fits it;
+`record_usage` counts cloud seconds / cloud answers (`ran_in_cloud`: model_used vs the model info's fallbacks);
+`usable_runners` (own + shared, no token hash) feeds the pickers, chat, jobs page and subscriptions.
 Open: passkeys (not needed for now).
 Source of truth: `dwyt-docs` (`docs/terv.md`, `docs/protokoll.md`). Install: `docs/telepites.md`; tests need PostgreSQL
 (throw-away cluster from tests/pgcluster.py, or TEST_DATABASE_URL as superuser).

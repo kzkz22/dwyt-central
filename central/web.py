@@ -32,7 +32,7 @@ from starlette.concurrency import run_in_threadpool
 
 from . import (accounts, chat, db, export, indexing, items, jobs, library, mailer, mcp_server, modelinfo, notify,
                ownfiles, personal, protocol, ratelimit, render, search, secretbox, security, sources, subscriptions,
-               youtube)
+               sharing, youtube)
 from . import submit as submit_mod
 from .submit import CLOUD_MODELS, LOCAL_MODELS, MODES, parse_options
 from .config import Settings, get_settings
@@ -44,7 +44,6 @@ from .models import (ACTIVE, Channel, Conversation, ConversationMessage, InboxEn
 log = logging.getLogger("dwyt")
 HERE = Path(__file__).resolve().parent
 PAGE_SIZE = 30
-ONLINE_S = 90
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
@@ -599,16 +598,18 @@ def library_page(request: Request, oldal: int = 1, q: str = "", szures: str = ""
             Transcript.id.in_([i.main_transcript_id for i in found if i.main_transcript_id])))}
         previews = {sm.id: render.plain_preview(sm.text) for sm in s.scalars(select(Summary).where(
             Summary.id.in_([i.current_summary_id for i in found if i.current_summary_id])))}
-        has_runner = s.scalar(select(func.count()).select_from(Runner).where(Runner.revoked_at.is_(None))) or 0
+        has_runner = len(sharing.usable_runners(s, viewer.id))
         item_tags = personal.tags_by_item(s, [i.id for i in found])
         tag_list = personal.all_tags(s)
-    return _render(request, "library.html", viewer, items=found, active=active, page=page, pages=pages, total=total,
+    return _render(request, "library.html", viewer, share_offers=sharing.open_offers(viewer.id),
+                   items=found, active=active, page=page, pages=pages, total=total,
                    has_runner=has_runner, q=q, szures=szures, filters=LIBRARY_FILTERS, mains=mains,
                    previews=previews, cimke=cimke, item_tags=item_tags, tag_list=tag_list)
 
 
-def _runners(s) -> list[Runner]:
-    return list(s.scalars(select(Runner).where(Runner.revoked_at.is_(None)).order_by(Runner.id)))
+def _runners(s, user_id: int) -> list[Any]:
+    """The viewer's own runners and the ones shared with them (effective capabilities)."""
+    return sharing.usable_runners(s, user_id)
 
 
 def _model_choices(runners: list[Runner], item: Item) -> list[str]:
@@ -666,7 +667,7 @@ def item_page(request: Request, item_id: int, atirat: int | None = None, nezet: 
                 ItemTranslation.item_id == item.id, ItemTranslation.translation_id == translation.id))),
         }
         status = _status_context(s, item)
-        runners = _runners(s)
+        runners = _runners(s, viewer.id)
         can_rerun = item.source.kind != "upload" or submit_mod.own_file_of(s, item) is not None
         tags = personal.tags_of(s, item.id)
         names = personal.names_for(s, item.id, chosen.id if chosen else None)
@@ -793,7 +794,7 @@ async def resummarize(request: Request, item_id: int, viewer: Viewer = Depends(a
             item = s.get(Item, item_id)
             if item is None or item.main_transcript_id is None:
                 return "Ehhez az elemhez még nincs átirat."
-            model, problem = _chosen_model(form, _runners(s), item)
+            model, problem = _chosen_model(form, _runners(s, viewer.id), item)
             if problem:
                 return problem
             busy = s.scalar(select(Job.id).where(Job.item_id == item.id, Job.kind == "summarize",
@@ -949,7 +950,7 @@ async def request_translation(request: Request, item_id: int, viewer: Viewer = D
             t = s.get(Transcript, tid)
             if not jobs.needs_translation(t.language):
                 return "Az átirat magyar, nincs mit fordítani."
-            model, problem = _chosen_model(form, _runners(s), item)
+            model, problem = _chosen_model(form, _runners(s, viewer.id), item)
             if problem:
                 return problem
             busy = [j for j in s.scalars(select(Job).where(Job.item_id == item.id, Job.kind == "translate",
@@ -1377,8 +1378,8 @@ def _chat_ctx(viewer: Viewer, item_id: int | None, wanted: str = "", error: str 
                              "sources": turn.question.sources or []})
             pending = chat.pending(s, conv.id)
         ctx = {"chat_item": item, "chat_conv": conv, "chat_rows": rows, "chat_list": listed,
-               "chat_pending": pending, "chat_picker": _picker(_runners(s), role, "ask"), "chat_role": role,
-               "chat_ready": chat.can_answer(s), "chat_error": error, "chat_draft": draft,
+               "chat_pending": pending, "chat_picker": _picker(_runners(s, viewer.id), role, "ask"), "chat_role": role,
+               "chat_ready": chat.can_answer(s, viewer.id), "chat_error": error, "chat_draft": draft,
                "chat_base": f"/elem/{item.id}" if item is not None else "/kereses",
                "chat_max": chat.MAX_QUESTION, "chat_sent": sent}
     return ctx
@@ -1498,7 +1499,24 @@ def conversations_page(request: Request, viewer: Viewer = Depends(current_viewer
 def _submit_ctx(viewer: Viewer) -> dict[str, Any]:
     lim = ownfiles.user_limits(get_settings(), viewer.id)
     return {"modes": MODES, "cloud_models": CLOUD_MODELS, "local_models": LOCAL_MODELS,
-            "upload_max_mb": lim.upload_bytes // 1024 ** 2}
+            "upload_max_mb": lim.upload_bytes // 1024 ** 2, "cloud_note": _cloud_note(viewer)}
+
+
+def _cloud_note(viewer: Viewer) -> str:
+    """Cloud transcription through a shared runner: whose key, how much is left this month."""
+    with db.user_session(viewer.id) as s:
+        own = s.scalars(select(Runner).where(Runner.revoked_at.is_(None))).all()
+    if any("cloud" in ((r.capabilities or {}).get("transcribe_modes") or []) for r in own):
+        return ""
+    for r in sharing.shared_with(viewer.id):
+        sh = r.share
+        if sh["cloud_hours"]:
+            left = max(0.0, sh["cloud_hours"] - sh["used_hours"])
+            amount = f"{left:.1f}".replace(".", ",")
+            return (f"Felhős átírás {r.owner_name} futtatóján, az ő kulcsával: ebben a hónapban még {amount} óra "
+                    "fér bele." if left > 0 else
+                    f"{r.owner_name} futtatóján a havi felhős keret elfogyott; a következő hónapban indul újra.")
+    return ""
 
 
 @app.get("/uj", response_class=HTMLResponse)
@@ -1600,8 +1618,8 @@ def _jobs_context(viewer: Viewer) -> dict[str, Any]:
         active = s.scalars(select(Job).where(Job.state.in_(ACTIVE), visible).order_by(Job.id)).all()
         recent = s.scalars(select(Job).where(Job.state.not_in(ACTIVE), visible)
                            .order_by(Job.finished_at.desc().nulls_last(), Job.id.desc()).limit(30)).all()
-        runners = s.scalars(select(Runner).where(Runner.revoked_at.is_(None))).all()
-    online = [r for r in runners if r.last_seen_at and (utcnow() - r.last_seen_at).total_seconds() < ONLINE_S]
+        runners = _runners(s, viewer.id)
+    online = [r for r in runners if sharing.online(r)]
     # queued jobs that none of the runners has declared it can do (e.g. local Whisper without a GPU)
     unfit = {j.id for j in active if j.state == "queued" and runners
              and not any(jobs.fits(j, r.capabilities or {}, r.id) for r in runners)}
@@ -1674,9 +1692,12 @@ def _pair_rate_limited(user_id: int) -> bool:
 def _runners_context(viewer: Viewer) -> dict[str, Any]:
     with db.user_session(viewer.id) as s:
         runners = s.scalars(select(Runner).order_by(Runner.revoked_at.is_not(None), Runner.id)).all()
-    now = utcnow()
-    return {"runners": runners, "models": {r.id: _runner_models(r) for r in runners},
-            "online": {r.id for r in runners if r.last_seen_at and (now - r.last_seen_at).total_seconds() < ONLINE_S},
+    shared = sharing.shared_with(viewer.id)
+    offers = sharing.shared_with(viewer.id, accepted=False)
+    everything = [*runners, *shared, *offers]
+    return {"runners": runners, "models": {r.id: _runner_models(r) for r in everything},
+            "online": {r.id for r in everything if sharing.online(r)},
+            "shares": sharing.owner_shares(viewer.id), "shared": shared, "offers": offers,
             "protocol": protocol.PROTOCOL, "base_url": get_settings().base_url}
 
 
@@ -1734,6 +1755,54 @@ async def revoke_runner(runner_id: int, viewer: Viewer = Depends(authed_post)):
                 runner.revoked_at = utcnow()
     await run_in_threadpool(run)
     return _redirect("/futtatok")
+
+
+SHARE_FLAGS = ("allow_captions", "allow_local", "allow_llm", "allow_own")
+
+
+def _share_options(form) -> dict[str, Any]:
+    return {**{k: form.get(k) == "on" for k in SHARE_FLAGS},
+            "cloud_hours": str(form.get("cloud_hours", "0"))[:12],
+            "llm_answers": str(form.get("llm_answers", "0"))[:12]}
+
+
+async def _share_action(request: Request, viewer: Viewer, action, notice: str):
+    try:
+        await run_in_threadpool(action)
+    except sharing.ShareError as exc:
+        return _render(request, "runners.html", viewer, status_code=422, **_runners_context(viewer), error=str(exc))
+    return _render(request, "runners.html", viewer, **_runners_context(viewer), notice=notice)
+
+
+@app.post("/futtatok/{runner_id}/megosztas")
+async def share_runner(request: Request, runner_id: int, viewer: Viewer = Depends(authed_post)):
+    form = await request.form()
+    wait = ratelimit.hit("share", str(viewer.id))
+    if wait:
+        return _render(request, "runners.html", viewer, status_code=429, **_runners_context(viewer),
+                       error=f"Túl sok megosztás egymás után; próbáld újra {wait // 60 + 1} perc múlva.")
+    email, options = str(form.get("email", ""))[:320], _share_options(form)
+    return await _share_action(request, viewer, lambda: sharing.offer(viewer.id, runner_id, email, options),
+                               "Felajánlottad. Amint elfogadja, a futtatód az ő munkáit is elvégzi.")
+
+
+@app.post("/futtatok/megosztas/{share_id}/modositas")
+async def change_share(request: Request, share_id: int, viewer: Viewer = Depends(authed_post)):
+    form = await request.form()
+    return await _share_action(request, viewer, lambda: sharing.update(viewer.id, share_id, _share_options(form)),
+                               "A megosztás beállításai elmentve.")
+
+
+@app.post("/futtatok/megosztas/{share_id}/elfogadas")
+async def accept_share(request: Request, share_id: int, viewer: Viewer = Depends(authed_post)):
+    return await _share_action(request, viewer, lambda: sharing.accept(viewer.id, share_id),
+                               "Elfogadtad. A munkáidat mostantól ez a futtató is elvégezheti.")
+
+
+@app.post("/futtatok/megosztas/{share_id}/torles")
+async def remove_share(request: Request, share_id: int, viewer: Viewer = Depends(authed_post)):
+    return await _share_action(request, viewer, lambda: sharing.remove(viewer.id, share_id),
+                               "A megosztás megszűnt. A már futó munkák még befejeződnek.")
 
 
 # ---- admin --------------------------------------------------------------------------------
