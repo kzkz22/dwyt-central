@@ -19,7 +19,8 @@
 {% if viewer %}
 {% set path = request.url.path %}
 {% set nav = [
-  ("Tartalom", [("/", "library", "Könyvtár"), ("/kereses", "search", "Keresés"), ("/uj", "plus", "Új átirat")]),
+  ("Tartalom", [("/", "library", "Könyvtár"), ("/kereses", "search", "Keresés"), ("/uj", "plus", "Új átirat"),
+               ("/beszelgetesek", "chat", "Beszélgetések")]),
   ("Feliratkozások", [("/postalada", "inbox", "Postaláda"), ("/csatornak", "tv", "Csatornák")]),
   ("Rendszer", [("/munkak", "jobs", "Munkák"), ("/futtatok", "server", "Futtatók"), ("/beallitasok", "settings", "Beállítások")]
                + ([("/admin", "shield", "Admin")] if viewer.is_admin else [])),

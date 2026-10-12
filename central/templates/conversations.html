@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block title %}Beszélgetések{% endblock %}
+{% block content %}
+<div class="bar"><h1>Beszélgetések</h1>
+  <a class="button" href="/kereses?beszelgetes=uj#kerdes">{{ icon("chat", 16) }}Kérdés a könyvtárról</a></div>
+<p class="muted">Egy videóról az elem oldalán, az egész könyvtáradról a Keresés oldalon kérdezhetsz. A választ a futtatód modellje írja.</p>
+{% if convs %}
+<ul class="items conv-list">
+{% for c in convs %}
+  <li class="item conv">
+    <span class="avatar ch-avatar" aria-hidden="true">{{ icon("chat" if c.item_id else "library", 16) }}</span>
+    <div>
+      <a class="title" href="/beszelgetes/{{ c.id }}">{{ c.title }}</a>
+      <div class="meta">{% if c.item_id %}{{ titles.get(c.item_id, 'elem') }}{% else %}a könyvtár{% endif %} · {{ counts.get(c.id, 0) }} kérdés · {{ c.updated_at|local }}</div>
+    </div>
+    <div class="actions">
+      <a class="button secondary small icon-only" href="/beszelgetes/{{ c.id }}.md" aria-label="Letöltés Markdownként" title="Letöltés (MD)">{{ icon("download", 15) }}</a>
+      <form method="post" action="/beszelgetes/{{ c.id }}/torles" class="inline confirm" data-confirm="Törlöd ezt a beszélgetést?">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="vissza" value="lista">
+        <button class="danger small icon-only" aria-label="Törlés: {{ c.title }}" title="Törlés">{{ icon("trash", 15) }}</button>
+      </form>
+    </div>
+  </li>
+{% endfor %}
+</ul>
+{% else %}<p class="card">Még nincs beszélgetésed.</p>{% endif %}
+{% endblock %}

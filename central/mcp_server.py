@@ -366,7 +366,8 @@ def munka_allapota(munka_id: int) -> dict[str, Any]:
         if job.item_id:
             out["elem_id"] = job.item_id
             out["link"] = _link(job.item_id)
-            pending = s.scalars(select(Job.kind).where(Job.item_id == job.item_id, Job.state.in_(ACTIVE))).all()
+            pending = s.scalars(select(Job.kind).where(Job.item_id == job.item_id, Job.state.in_(ACTIVE),
+                                                       Job.kind != "ask")).all()
             if pending:
                 out["folyamatban"] = sorted({jobs.KIND_LABELS.get(k, k) for k in pending})
     return out

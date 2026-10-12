@@ -150,6 +150,23 @@
   });
   window.addEventListener("resize", () => { if (!mobile()) closeMenu(); });
 
+  // questions: Ctrl+Enter sends; after an accepted question the box is emptied (it is kept across
+  // the panel's refreshes with hx-preserve)
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && e.target.id === "chat-q" && e.target.form) {
+      e.preventDefault();
+      e.target.form.requestSubmit();
+    }
+  });
+  document.addEventListener("htmx:afterSwap", function () {
+    const panel = document.getElementById("kerdes");
+    if (panel && panel.dataset.sent) {
+      const box = document.getElementById("chat-q");
+      if (box) box.value = "";
+      delete panel.dataset.sent;
+    }
+  });
+
   function init() {
     syncCollapse();
     document.querySelectorAll("form#submit-form").forEach((form) => {

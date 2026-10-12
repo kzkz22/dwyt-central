@@ -12,8 +12,8 @@ from typing import IO, Any
 
 from sqlalchemy import select
 
-from . import db, items, library, personal
-from .models import Item, ItemTranscript, Summary, Transcript, Translation
+from . import chat, db, items, library, personal
+from .models import Conversation, ConversationMessage, Item, ItemTranscript, Summary, Transcript, Translation
 
 FORMATS = ("md", "json")
 
@@ -91,8 +91,24 @@ def build(user_id: int, fmt: str) -> IO[bytes]:
                 z.writestr(f"dwyt/{n:04d}-{library.file_base(item, 'elem')[:60]}.md", _markdown(entry))
             else:
                 everything.append(entry["data"])
+        talks = []
+        titles = {i.id: library.item_title(i) for i in all_items}
+        for conv in s.scalars(select(Conversation).order_by(Conversation.created_at, Conversation.id)):
+            about = titles.get(conv.item_id, "elem") if conv.item_id else "a könyvtár"
+            if fmt == "md":
+                z.writestr(f"dwyt/beszelgetesek/{conv.id:05d}.md", chat.markdown(s, conv, about))
+            else:
+                talks.append({"cim": conv.title, "elem_id": conv.item_id, "kezdve": conv.created_at.isoformat(),
+                              "uzenetek": [{"szerep": "kérdés" if m.role == "user" else "válasz", "szoveg": m.content,
+                                            "modell": m.model_used or m.model, "ido": m.created_at.isoformat(),
+                                            "forrasok": [{"sorszam": x.get("n"), "elem_id": x.get("item_id"),
+                                                          "cim": x.get("title")} for x in m.sources or []]}
+                                           for m in s.scalars(select(ConversationMessage).where(
+                                               ConversationMessage.conversation_id == conv.id)
+                                               .order_by(ConversationMessage.id))]})
         if fmt == "json":
             z.writestr("dwyt/konyvtar.json", json.dumps({"exportalva": datetime.now().isoformat(timespec="seconds"),
-                                                         "elemek": everything}, ensure_ascii=False, indent=1))
+                                                         "elemek": everything, "beszelgetesek": talks},
+                                                        ensure_ascii=False, indent=1))
     out.seek(0)
     return out

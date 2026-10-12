@@ -25,6 +25,8 @@
   {% if index_status.waiting %}<p class="muted">{{ index_status.waiting }} elem még indexelés alatt van; ezek később lesznek kereshetők.</p>{% endif %}
 </form>
 
+{% if not outcome %}{% include "_chat.html" %}{% endif %}
+
 {% if outcome %}
   {% if outcome.meaning_error %}<p class="warn-box">A jelentés szerinti keresés most nem érhető el, csak szöveges találatok látszanak.</p>{% endif %}
   {% if not outcome.results %}<p class="card">Nincs találat.</p>{% endif %}
@@ -53,4 +55,5 @@
   {% endfor %}
   </ul>
 {% endif %}
+{% if outcome %}{% include "_chat.html" %}{% endif %}
 {% endblock %}

@@ -1,0 +1,78 @@
+{% from "_icons.html" import icon %}
+{% from "_macros.html" import info, num %}
+{# The conversation panel: an item's (chat_item) or the library's. Polls while a question is open. #}
+<section class="card chat" id="kerdes"{% if chat_sent %} data-sent="1"{% endif %}
+  {% if chat_pending %}hx-get="/beszelgetes/{{ chat_conv.id }}/reszlet" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}>
+  <div class="bar chat-head">
+    <h2>{{ icon("chat", 18) }} {{ 'Kérdezz a videóról' if chat_item else 'Kérdezz a könyvtáradról' }}</h2>
+    <div class="actions">
+      {% if chat_conv %}
+      <a class="button secondary small" href="/beszelgetes/{{ chat_conv.id }}.md">{{ icon("download", 15) }}Letöltés (MD)</a>
+      <a class="button secondary small" href="{{ chat_base }}?beszelgetes=uj#kerdes">{{ icon("plus-small", 15) }}Új beszélgetés</a>
+      <form method="post" action="/beszelgetes/{{ chat_conv.id }}/torles" class="inline confirm" data-confirm="Törlöd ezt a beszélgetést?">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="danger small icon-only" aria-label="Beszélgetés törlése" title="Beszélgetés törlése">{{ icon("trash", 15) }}</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+  {% if chat_list and (chat_list|length > 1 or not chat_conv) %}
+  <details class="help chat-older">
+    <summary>Korábbi beszélgetések ({{ chat_list|length }})</summary>
+    <ul class="chat-list">
+      {% for c in chat_list %}<li>{% if chat_conv and c.id == chat_conv.id %}<strong>{{ c.title }}</strong>{% else %}<a href="{{ chat_base }}?beszelgetes={{ c.id }}#kerdes">{{ c.title }}</a>{% endif %} <span class="muted">· {{ c.updated_at|local }}</span></li>{% endfor %}
+    </ul>
+  </details>
+  {% endif %}
+  {% if not chat_item %}<p class="muted chat-note">A válasz a könyvtárad nyilvános videóiból készül, a keresés legjobb részletei alapján; a saját felvételeid kimaradnak.</p>
+  {% elif chat_role == 'private' %}<p class="muted chat-note">Saját felvétel: csak a futtatód helyi modellje válaszolhat.</p>{% endif %}
+  {% if not chat_ready %}<p class="warn-box">Egyik futtatód sem jelezte még, hogy tud kérdésre válaszolni. Frissítsd a futtatót (dwyt-runner 0.6 vagy újabb), és indítsd újra.</p>{% endif %}
+
+  {% if chat_rows %}
+  <ol class="chat-log" aria-live="polite">
+    {% for row in chat_rows %}
+    <li class="msg user"><div class="bubble">{{ row.q.content }}</div><div class="msg-meta">{{ row.q.created_at|local }}</div></li>
+    {% if row.a %}
+    <li class="msg bot">
+      <div class="bubble md">{{ row.html }}</div>
+      {% if row.sources %}
+      <details class="chat-sources"><summary>Források ({{ row.sources|length }})</summary>
+        <ol>{% for src in row.sources %}<li value="{{ src.n }}"><a href="/elem/{{ src.item_id }}">{{ src.title }}</a>{% if src.channel %} <span class="muted">· {{ src.channel }}</span>{% endif %}</li>{% endfor %}</ol>
+      </details>
+      {% endif %}
+      <div class="msg-meta">{{ row.a.model_used or row.a.model or 'modell' }} · {{ row.a.created_at|local }}
+        {{ info([("Kért modell", row.a.model or "a futtató alapértelmezése"), ("Válaszolt", row.a.model_used or ""),
+                 ("Bemenet", num(row.a.prompt_tokens) ~ " token" if row.a.prompt_tokens else ""),
+                 ("Kimenet", num(row.a.completion_tokens) ~ " token" if row.a.completion_tokens else ""),
+                 ("Ebből gondolkodás", num(row.a.reasoning_tokens) ~ " token" if row.a.reasoning_tokens else ""),
+                 ("Idő", (row.a.duration_s|round|int) ~ " s" if row.a.duration_s else "")]) }}</div>
+    </li>
+    {% elif row.job and row.job.state in ('queued', 'running') %}
+    <li class="msg bot pending"><div class="bubble"><span class="dots" aria-hidden="true"><span></span><span></span><span></span></span>
+      {% if row.job.state == 'running' %}A futtatód írja a választ…{% elif row.job.attempts %}Vár, újrapróbálja: {{ row.job.run_after|local("%H:%M") }}{% if row.job.error %} ({{ row.job.error }}){% endif %}{% else %}Sorban áll, a futtatódra vár…{% endif %}</div></li>
+    {% elif row.job and row.job.state == 'failed' %}
+    <li class="msg bot failed"><div class="bubble"><span class="error-text">Nem jött válasz: {{ row.job.error or 'ismeretlen hiba' }}</span>
+      {% if loop.last %}<form method="post" action="/beszelgetes/{{ chat_conv.id }}/ujra" class="inline" hx-post="/beszelgetes/{{ chat_conv.id }}/ujra" hx-target="#kerdes" hx-swap="outerHTML">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="secondary small">{{ icon("refresh", 14) }}Újra</button></form>{% endif %}</div></li>
+    {% elif row.job and row.job.state == 'cancelled' %}
+    <li class="msg bot failed"><div class="bubble muted">Megszakítva.</div></li>
+    {% endif %}
+    {% endfor %}
+  </ol>
+  {% endif %}
+
+  {% if chat_error %}<p class="error" role="alert">{{ chat_error }}</p>{% endif %}
+  <form method="post" action="{{ chat_base }}/kerdes" class="chat-form" hx-post="{{ chat_base }}/kerdes" hx-target="#kerdes" hx-swap="outerHTML">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    {% if chat_conv %}<input type="hidden" name="conversation_id" value="{{ chat_conv.id }}">{% endif %}
+    <label for="chat-q" class="sr-only">Kérdés</label>
+    <textarea id="chat-q" name="question" rows="3" maxlength="{{ chat_max }}" hx-preserve="true" required
+      placeholder="{{ 'Mit szeretnél tudni a videóról? (Ctrl+Enter: küldés)' if chat_item else 'Mit keresel a könyvtáradban? Például: mit mondtak a hőszivattyúk téli hatásfokáról? (Ctrl+Enter: küldés)' }}">{{ chat_draft }}</textarea>
+    <div class="actions chat-actions">
+      {% if chat_models %}
+      <label class="sr-only" for="chat-model">Modell</label>
+      <select id="chat-model" name="model"><option value="">A futtató alapértelmezése</option>{% for m in chat_models %}<option value="{{ m }}">{{ m }}</option>{% endfor %}</select>
+      {% endif %}
+      <button {% if chat_pending %}disabled title="Várd meg az előző válaszát"{% endif %}>{{ icon("send", 15) }}{{ 'Folytatás' if chat_conv else 'Kérdezek' }}</button>
+    </div>
+  </form>
+</section>

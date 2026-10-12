@@ -43,11 +43,15 @@ class Filters:
     date_from: date | None = None
     date_to: date | None = None
     public_only: bool = False  # leave out own recordings (MCP tokens without access to them)
+    item_id: int | None = None  # within one item (questions about a long item)
 
     def sql(self) -> tuple[str, dict[str, Any]]:
         where, params = [], {}
         if self.public_only:
             where.append("i.is_public")
+        if self.item_id is not None:
+            where.append("i.id = :f_item")
+            params["f_item"] = int(self.item_id)
         if self.channel:
             where.append("src.meta->>'channel' = :f_channel")
             params["f_channel"] = self.channel
@@ -135,7 +139,9 @@ def _tsquery_sql(configs: list[str]) -> str:
     return "(" + " || ".join(parts) + ")"
 
 
-def run(user_id: int, q: str, settings: Settings, exact: bool = False, filters: Filters | None = None) -> Outcome:
+def run(user_id: int, q: str, settings: Settings, exact: bool = False, filters: Filters | None = None,
+        hits_per_item: int = HITS_PER_ITEM, meaning_text: str | None = None) -> Outcome:
+    """meaning_text: what the meaning search embeds instead of q (a question asked in full)."""
     q = " ".join(q.split())[:300]
     filters = filters or Filters()
     if not q:
@@ -161,7 +167,7 @@ def run(user_id: int, q: str, settings: Settings, exact: bool = False, filters: 
     meaning_used, meaning_error = False, None
     if not exact and settings.embed_url:
         try:
-            _model, [vector] = embed(settings.embed_url, [q], timeout=15)
+            _model, [vector] = embed(settings.embed_url, [(meaning_text or q)[:2000]], timeout=15)
             vec = "[" + ",".join(f"{x:.7g}" for x in vector) + "]"
             with db.user_session(user_id) as s:
                 # the HNSW scan returns ef_search rows and filters apply after it: ask for more,
@@ -181,10 +187,10 @@ def run(user_id: int, q: str, settings: Settings, exact: bool = False, filters: 
             meaning_used = True
         except EmbedUnavailable as exc:
             meaning_error = str(exc)
-    return Outcome(_fuse(user_id, lists), meaning_used, meaning_error)
+    return Outcome(_fuse(user_id, lists, hits_per_item), meaning_used, meaning_error)
 
 
-def _fuse(user_id: int, lists: dict[str, list]) -> list[ItemResult]:
+def _fuse(user_id: int, lists: dict[str, list], hits_per_item: int = HITS_PER_ITEM) -> list[ItemResult]:
     hits: dict[tuple[int, int], Hit] = {}
     for name, rows in lists.items():
         for rank, row in enumerate(rows, 1):
@@ -209,7 +215,7 @@ def _fuse(user_id: int, lists: dict[str, list]) -> list[ItemResult]:
             "LEFT JOIN transcripts mt ON mt.id = i.main_transcript_id WHERE i.id = ANY(:ids)"),
             {"ids": [k for k, _ in ranked]}).mappings().all()
     items = {r["id"]: dict(r) for r in rows}
-    return [ItemResult(items[k], v[0].score, v[:HITS_PER_ITEM]) for k, v in ranked if k in items]
+    return [ItemResult(items[k], v[0].score, v[:hits_per_item]) for k, v in ranked if k in items]
 
 
 def channels(user_id: int) -> list[str]:

@@ -93,6 +93,13 @@ Egyszeri lépések, a fenti frissítés **előtt**:
 3. A téma (világos / sötét) és a becsukott menü böngészőnként tárolódik; először a rendszer témáját követi.
 4. Ha az Apache-on saját `Content-Security-Policy` fejlécet állítottál be, abban is maradjon `default-src 'self'` (a betűtípus és az ikonok a központról jönnek, külső címről semmi).
 
+## Frissítés a 0.11-re (kérdezés a könyvtárról)
+
+1. A fenti frissítés; a migráció (0011) magától lefut (beszélgetések táblái, új munkafajta).
+2. A futtatót is frissíteni kell, mert a választ ő írja: `uv tool upgrade dwyt-runner` (0.6 vagy újabb), majd `dwyt-runner config set llm_ask_model kerdes` (vagy más modell; ha nincs megadva, az `llm_public_model` válaszol), és a futtató újraindítása.
+3. Az AI-routeren a `kerdes` név felvétele a `models.yaml`-ba (dwyt-airouter, frissites.md), `dwyt-airouter generate`, `systemctl restart dwyt-litellm`.
+4. Amíg egyik futtató sem jelenti, hogy tud kérdésre válaszolni, a kérdés-panel ezt kiírja, és a kérdések várnak.
+
 ## Frissítés a 0.10.1-re (YouTube-hírcsatorna kiesése)
 
 A YouTube hírcsatornái (`/feeds/videos.xml`) 2025 vége óta naponta órákra minden csatornára 404-et vagy 500-at adnak, főleg éjjel. A korábbi verzió ezt „a csatorna nem található” hibaként írta ki minden csatornánál.

@@ -30,7 +30,7 @@
     </div>
   </div>
 </header>
-<nav class="jump" aria-label="Ugrás az oldalon"><a href="#summary">{{ icon("sparkles", 15) }}Összefoglaló</a><a href="#sajat">{{ icon("tag", 15) }}Címkék és jegyzet</a><a href="#atirat">{{ icon("file", 15) }}Átirat</a></nav>
+<nav class="jump" aria-label="Ugrás az oldalon"><a href="#summary">{{ icon("sparkles", 15) }}Összefoglaló</a><a href="#kerdes">{{ icon("chat", 15) }}Kérdezz</a><a href="#sajat">{{ icon("tag", 15) }}Címkék és jegyzet</a><a href="#atirat">{{ icon("file", 15) }}Átirat</a></nav>
 {% include "_item_status.html" %}
 
 <section class="card" id="summary">
@@ -70,6 +70,8 @@
   </details>
   {% endif %}
 </section>
+
+{% include "_chat.html" %}
 
 <section class="card" id="sajat">
   <h2>Címkék és jegyzet</h2>

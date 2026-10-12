@@ -6,7 +6,7 @@ per-user libraries (strictly separated; PostgreSQL row-level security as a secon
 with per-user tokens. It never holds users' API keys and never calls a runner: runners connect out
 (HTTPS long-poll) and claim jobs by their declared capabilities.
 
-Status: rounds 1–5 implemented (sign-in, invitations, RLS library, runner protocol, captions/cloud/local
+Status: rounds 1–6 implemented (sign-in, invitations, RLS library, runner protocol, captions/cloud/local
 transcription, summary and translate jobs; search: `indexing.py` shared chunks + indexer thread in the web process,
 `search.py` FTS + pg_trgm + pgvector fused by RRF, `embedder.py` = separate `dwyt-central-embed` service;
 `reuse.py`: shareable results taken over at submit; `ownfiles.py`: browser uploads staged until the runner
@@ -30,6 +30,12 @@ nav, collapsible on desktop, off-canvas on mobile; signed-out pages get a centre
 Lucide icons, `static/theme.js` (loaded in <head>, not deferred: theme + collapsed state before first paint, localStorage),
 `static/app.js` (menu, focus trap, theme toggle), `static/style.css` (HSL tokens, light/dark), `static/fonts/` vendored
 Inter (OFL; the CSP allows no external fonts). Check new pages at 390 px width: no horizontal scroll.
+Round 6 (plan 15a): `chat.py` questions about an item or the library. The central gathers the background (item:
+main transcript + translation + summary, over ITEM_MAX_CHARS the item's best search passages; library: hybrid search,
+own recordings left out, snapshot stored in the question's `sources`) and queues an `ask` job; the runner answers
+(no tools: transcripts are untrusted). Conversations/messages tables under RLS; `render.chat_html` (escaped Markdown
+subset, links only from [12:34] / [#n 12:34]); `_chat.html` panel polls with htmx while a question is open; ask jobs
+are hidden from the Jobs page and never notify (`jobs.QUIET_KINDS`); per-user limit `ratelimit` "ask".
 Open: passkeys (not needed for now).
 Source of truth: `dwyt-docs` (`docs/terv.md`, `docs/protokoll.md`). Install: `docs/telepites.md`; tests need PostgreSQL
 (throw-away cluster from tests/pgcluster.py, or TEST_DATABASE_URL as superuser).

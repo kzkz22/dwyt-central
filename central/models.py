@@ -307,6 +307,36 @@ class Job(Base):
     updated_at: Mapped[datetime] = _now()
 
 
+# ---- questions about an item or the library (round 6) ----------------------------------------
+
+class Conversation(Base):
+    __tablename__ = "conversations"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    item_id: Mapped[int | None] = mapped_column(ForeignKey("items.id", ondelete="CASCADE"))  # None: library
+    title: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = _now()
+    updated_at: Mapped[datetime] = _now()
+
+
+class ConversationMessage(Base):
+    __tablename__ = "conversation_messages"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    conversation_id: Mapped[int] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    role: Mapped[str] = mapped_column(Text)  # user | assistant
+    content: Mapped[str] = mapped_column(Text)
+    job_id: Mapped[int | None] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"))
+    sources: Mapped[list[Any]] = mapped_column(default=list)
+    model: Mapped[str | None] = mapped_column(Text)
+    model_used: Mapped[str | None] = mapped_column(Text)
+    prompt_tokens: Mapped[int | None] = mapped_column(Integer)
+    completion_tokens: Mapped[int | None] = mapped_column(Integer)
+    reasoning_tokens: Mapped[int | None] = mapped_column(Integer)
+    duration_s: Mapped[float | None] = mapped_column(Float)
+    created_at: Mapped[datetime] = _now()
+
+
 # ---- YouTube subscriptions (round 4) --------------------------------------------------------
 
 class Channel(Base):

@@ -1,4 +1,5 @@
-"""In-process rate limits for the endpoints anyone on the internet can call without signing in.
+"""In-process rate limits for the endpoints anyone on the internet can call without signing in
+(and a few per-user ones, keyed by the user id).
 
 Keyed by the client address, which is the real one only when uvicorn trusts the Apache host
 (FORWARDED_ALLOW_IPS); otherwise every visitor shares the Apache address and the limits are
@@ -18,6 +19,7 @@ LIMITS = {
     "pair-start": (10, 600),      # each start stores a pending pairing
     "mcp": (300, 300),            # MCP calls per token (a model may call several tools per answer)
     "mcp-bad-token": (20, 300),   # wrong MCP tokens per address
+    "ask": (60, 3600),            # questions per user (each one is a job for his runner)
 }
 
 _hits: dict[tuple[str, str], deque[float]] = {}

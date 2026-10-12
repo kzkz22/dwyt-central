@@ -27,9 +27,10 @@ STAGE_LABELS = {
     "prepare-audio": "Hang előkészítése", "upload": "Feltöltés a felhőbe", "transcribe": "Átírás",
     "summarize": "Összefoglaló írása", "write": "Mentés", "starting": "Indul",
     "waiting-for-gpu": "Vár a GPU-ra", "load-audio": "Hang betöltése", "align": "Igazítás",
-    "diarize": "Beszélők szétválasztása", "translate": "Fordítás",
+    "diarize": "Beszélők szétválasztása", "translate": "Fordítás", "ask": "Válasz írása",
 }
-KIND_LABELS = {"transcribe": "Átírás", "summarize": "Összefoglaló", "translate": "Fordítás"}
+KIND_LABELS = {"transcribe": "Átírás", "summarize": "Összefoglaló", "translate": "Fordítás", "ask": "Kérdés"}
+QUIET_KINDS = ("ask",)  # answered in the conversation: not on the Jobs page, no failure notification
 TRANSLATION_TARGET = "hu"
 STATE_LABELS = {"queued": "Sorban", "running": "Fut", "done": "Kész", "failed": "Hiba", "cancelled": "Megszakítva"}
 CAPTIONS_SUMMARY_LANGUAGE = "hu"
@@ -136,7 +137,7 @@ def fits(job: Job, caps: dict[str, Any], runner_id: int | None = None) -> bool:
         if src.get("kind") in ("upload", "local"):
             return True
         return sources.domain_allowed(src.get("url") or "", caps.get("allowed_domains"))
-    if job.kind in ("summarize", "translate"):
+    if job.kind in ("summarize", "translate", "ask"):
         role = job.payload.get("role")
         if role not in (caps.get("llm_roles") or []):
             return False
@@ -165,7 +166,8 @@ def requeue_expired(s: DbSession, user_id: int, settings: Settings) -> None:
         elif job.attempts >= settings.job_max_attempts:
             job.state, job.finished_at = "failed", now
             job.error = "A futtató nem jelentkezett a munkával; a próbálkozások elfogytak."
-            notify.job_failed(s, job)
+            if job.kind not in QUIET_KINDS:
+                notify.job_failed(s, job)
         else:
             job.state, job.stage, job.runner_id, job.lease_until = "queued", "queued", None, None
             job.error = "A futtató nem jelentkezett; a munka visszakerült a sorba."
@@ -192,6 +194,9 @@ def claim(s: DbSession, runner: Runner, caps: dict[str, Any], settings: Settings
 
 def job_input(s: DbSession, job: Job) -> dict[str, Any]:
     """What the runner gets for a claimed job."""
+    if job.kind == "ask":
+        from . import chat
+        return chat.job_input(s, job, get_settings())
     if job.kind == "transcribe":
         src = dict(job.payload["source"])
         if src.get("kind") == "upload":
@@ -258,7 +263,8 @@ def fail(s: DbSession, runner: Runner, job_id: int, error: str, retry_mode: str,
         job.state, job.stage, job.run_after = "queued", "queued", now + timedelta(minutes=delay)
     else:
         job.state, job.finished_at = "failed", now
-        notify.job_failed(s, job)
+        if job.kind not in QUIET_KINDS:
+            notify.job_failed(s, job)
 
 
 # ---- results ------------------------------------------------------------------------------
@@ -300,7 +306,7 @@ def store_transcription(s: DbSession, runner: Runner, job: Job, result: dict[str
         if job.payload.get("make_main"):
             item.current_summary_id = None
     item.updated_at = utcnow()
-    _finish(job, {"transcript_id": t.id})
+    finish(job, {"transcript_id": t.id})
     file = job.payload.get("source") or {}
     if file.get("kind") == "upload" and file.get("upload_id"):
         ownfiles.consume(s, get_settings(), int(file["upload_id"]))
@@ -349,7 +355,7 @@ def store_summary(s: DbSession, runner: Runner, job: Job, result: dict[str, Any]
         s.flush()
         notify.item_done(s, item)
     item.updated_at = utcnow()
-    _finish(job, {"summary_id": summary.id})
+    finish(job, {"summary_id": summary.id})
     return summary
 
 
@@ -381,7 +387,7 @@ def store_translation(s: DbSession, runner: Runner, job: Job, result: dict[str, 
         item.current_translation_id = tr.id
         indexing.enqueue(s, item)
     item.updated_at = utcnow()
-    _finish(job, {"translation_id": tr.id})
+    finish(job, {"translation_id": tr.id})
     return tr
 
 
@@ -391,7 +397,7 @@ def translation_recipe(transcript_id: int, prompt_version: int, language: str) -
                         "kind": "translation"})
 
 
-def _finish(job: Job, ref: dict[str, Any]) -> None:
+def finish(job: Job, ref: dict[str, Any]) -> None:
     now = utcnow()
     job.state, job.stage, job.finished_at, job.updated_at = "done", "done", now, now
     job.lease_until, job.error = None, None
@@ -409,6 +415,9 @@ def store_result(s: DbSession, runner: Runner, job_id: int, result: dict[str, An
         raise ProtocolError(409, "the job is not running on this runner")
     if job.kind == "transcribe":
         store_transcription(s, runner, job, result)
+    elif job.kind == "ask":
+        from . import chat
+        chat.store_answer(s, runner, job, result)
     elif job.kind == "translate":
         store_translation(s, runner, job, result)
     else:

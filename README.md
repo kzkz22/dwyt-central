@@ -8,7 +8,7 @@ A **dwyt** központja: webes felület, belépés (Google + meghívás), felhaszn
 
 ## Állapot
 
-Az 1–5. kör kész:
+Az 1–6. kör kész:
 
 - belépés Google-lel, meghívással (vagy telepítéskor választva nyitottan); admin tartalékbelépés jelszóval és TOTP-vel;
 - felhasználónként külön könyvtár; a szétválasztást az adatbázis sorvédelme (row-level security) is őrzi;
@@ -22,6 +22,7 @@ Az 1–5. kör kész:
 - értesítés ntfy-jal vagy Home Assistanttel: kész munka, hiba, a feliratkozásokról napi összesítő vagy csatornánként azonnal (4b);
 - MCP a `/mcp` címen, felhasználónkénti, visszavonható tokenekkel (4c): [docs/mcp.md](docs/mcp.md);
 - címkék, jegyzet és beszélőnevek az elemeken; a könyvtár exportja (Markdown vagy JSON); fióktörlés a felhasználó által; kétlépcsős belépés (hitelesítő alkalmazás a Google után, kötelezővé is tehető); meghívó e-mailben (5. kör);
+- kérdezés a felületen belül (6. kör): beszélgetés egy videóról az elem oldalán, és az egész könyvtárról a Keresés oldalon (a saját felvételek nélkül); a választ a futtató modellje írja hivatkozásokkal, a beszélgetés Markdownként letölthető;
 - felület a StockMaster mintájára: bal oldali, becsukható menü, mobilon becsúszó menü, világos és sötét téma, akadálymentes kezelés (billentyűzet, képernyőolvasó, látható fókusz).
 
 ## Fejlesztés

@@ -407,7 +407,20 @@ class TranslateResult(BaseModel):
     duration_s: float | None = None
 
 
-RESULT_MODELS = {"transcribe": TranscribeResult, "summarize": SummaryResult, "translate": TranslateResult}
+class AskResult(BaseModel):
+    """The answer to a question (kind ask): Markdown in Hungarian."""
+    text: str = Field(min_length=1, max_length=100000)
+    model: str | None = Field(default=None, max_length=200)
+    model_used: str | None = Field(default=None, max_length=200)
+    prompt_version: int = 0
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    reasoning_tokens: int | None = None
+    duration_s: float | None = None
+
+
+RESULT_MODELS = {"transcribe": TranscribeResult, "summarize": SummaryResult, "translate": TranslateResult,
+                 "ask": AskResult}
 
 
 def _job_kind(runner: Runner, job_id: int) -> str | None:

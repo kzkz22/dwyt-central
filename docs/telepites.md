@@ -265,7 +265,8 @@ Ellenőrzés: `curl -sI https://dwyt.iodate.date/healthz` → `200`, és a vála
 3. **Futtatók:** a saját gépeden telepítsd a futtatót ([dwyt-runner](https://github.com/kzkz22/dwyt-runner)), `dwyt-runner pair https://dwyt.iodate.date`, a kiírt kódot írd be itt.
 4. **Új átirat:** egy YouTube-link „YouTube-felirat” móddal; a futtató pár másodpercen belül elkezdi.
 5. A menü bal oldalt van; asztali gépen a fejlécében lévő gombbal ikonsávvá csukható, mobilon a bal felső gombbal nyílik. A téma a menü alján váltható.
-6. Ami ezután mindenkinek a saját felületén van: **Csatornák** (YouTube-feliratkozások), **Postaláda**, **Beállítások** (fordítás, értesítés ntfy-jal vagy Home Assistanttel, kétlépcsős belépés, MCP-tokenek, export, fióktörlés). Az MCP-kliensek beállítása: [mcp.md](mcp.md).
+6. **Kérdezés:** az elem oldalán „Kérdezz a videóról”, a Keresés oldalon „Kérdezz a könyvtáradról”; a választ a futtató írja (dwyt-runner 0.6-tól, a modell az `llm_ask_model`, AI-routeren a `kerdes` név). A beszélgetések a **Beszélgetések** menüpontban vannak, Markdownként letölthetők.
+7. Ami ezután mindenkinek a saját felületén van: **Csatornák** (YouTube-feliratkozások), **Postaláda**, **Beállítások** (fordítás, értesítés ntfy-jal vagy Home Assistanttel, kétlépcsős belépés, MCP-tokenek, export, fióktörlés). Az MCP-kliensek beállítása: [mcp.md](mcp.md).
 
 ## Hibakeresés
 
@@ -277,6 +278,7 @@ Ellenőrzés: `curl -sI https://dwyt.iodate.date/healthz` → `200`, és a vála
 | Google-belépéskor `redirect_uri_mismatch` | A 7. lépés redirect URI-ja betűre egyezzen a `BASE_URL` + `/auth/google/callback` címmel (https, perjel nélkül a végén). |
 | „Ide csak meghívással lehet regisztrálni” | A meghívó linkjét kell először megnyitni, és onnan belépni; vagy a `REGISTRATION` értéke `open`. |
 | Belépés után visszadob a belépő oldalra | HTTP-n `COOKIE_SECURE=true` mellett a böngésző nem küldi a sütit; az Apache-on át (HTTPS) próbáld, vagy belső próbához átmenetileg `false`. |
+| A kérdés panelje szerint „egyik futtatód sem jelezte még, hogy tud kérdésre válaszolni” | A futtatót frissíteni kell (`uv tool upgrade dwyt-runner`, 0.6 vagy újabb), és újraindítani; az új képességet induláskor jelenti be. |
 | A futtatók oldalán „nem jelentkezik” | A futtató gépén `dwyt-runner check`; a futtatónak el kell érnie a `BASE_URL`-t. Egy `Require ip` blokk a kívülről jövő futtatót is kizárja. |
 | „Túl sok próbálkozás” mindenkinek egyszerre | A `FORWARDED_ALLOW_IPS` hiányzik vagy rossz: minden kérés az Apache címéről jön, és a korlát közös. |
 | Az Apache `configtest` hibát ad a `Require ip` sorra | Helyőrző maradt benne (például `VPN-SUBNET`); valódi tartományt írj be, vagy töröld a blokkot. |

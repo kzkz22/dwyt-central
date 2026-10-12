@@ -30,15 +30,15 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from starlette.concurrency import run_in_threadpool
 
-from . import (accounts, db, export, indexing, items, jobs, library, mailer, mcp_server, notify, ownfiles, personal,
-               protocol, ratelimit, render, search, secretbox, security, sources, subscriptions, youtube)
+from . import (accounts, chat, db, export, indexing, items, jobs, library, mailer, mcp_server, notify, ownfiles,
+               personal, protocol, ratelimit, render, search, secretbox, security, sources, subscriptions, youtube)
 from . import submit as submit_mod
 from .submit import CLOUD_MODELS, LOCAL_MODELS, MODES, parse_options
 from .config import Settings, get_settings
 from .db import utcnow
-from .models import (ACTIVE, Channel, InboxEntry, Invite, Item, ItemSummary, ItemTag, ItemTranscript, ItemTranslation,
-                     Job, LoginState, Runner, Session, Source, Subscription, Summary, Transcript, Translation, Upload,
-                     User)
+from .models import (ACTIVE, Channel, Conversation, ConversationMessage, InboxEntry, Invite, Item, ItemSummary, ItemTag,
+                     ItemTranscript, ItemTranslation, Job, LoginState, Runner, Session, Source, Subscription, Summary,
+                     Transcript, Translation, Upload, User)
 
 log = logging.getLogger("dwyt")
 HERE = Path(__file__).resolve().parent
@@ -571,7 +571,8 @@ def library_page(request: Request, oldal: int = 1, q: str = "", szures: str = ""
     cimke = cimke.strip()[:personal.TAG_LEN]
     szures = szures if szures in LIBRARY_FILTERS else ""
     with db.user_session(viewer.id) as s:
-        active = set(s.scalars(select(Job.item_id).where(Job.state.in_(ACTIVE))).all())
+        active = set(s.scalars(select(Job.item_id).where(Job.state.in_(ACTIVE),
+                                                         Job.kind.not_in(jobs.QUIET_KINDS))).all())
         query = select(Item).join(Source, Source.id == Item.source_id)
         if q:
             like = _like(q)
@@ -614,7 +615,8 @@ def _model_choices(runners: list[Runner], item: Item) -> list[str]:
 
 
 def _status_context(s, item: Item) -> dict[str, Any]:
-    item_jobs = s.scalars(select(Job).where(Job.item_id == item.id).order_by(Job.id.desc()).limit(10)).all()
+    item_jobs = s.scalars(select(Job).where(Job.item_id == item.id, Job.kind.not_in(jobs.QUIET_KINDS))
+                          .order_by(Job.id.desc()).limit(10)).all()
     active_jobs = [j for j in reversed(item_jobs) if j.state in ACTIVE]
     failed = next((j for j in item_jobs if j.state in ("failed", "done", "cancelled")), None)
     return {"active_jobs": active_jobs, "last_failed": failed if failed is not None and failed.state == "failed"
@@ -623,7 +625,7 @@ def _status_context(s, item: Item) -> dict[str, Any]:
 
 @app.get("/elem/{item_id}", response_class=HTMLResponse)
 def item_page(request: Request, item_id: int, atirat: int | None = None, nezet: str = "",
-              osszefoglalo: int | None = None, viewer: Viewer = Depends(current_viewer)):
+              osszefoglalo: int | None = None, beszelgetes: str = "", viewer: Viewer = Depends(current_viewer)):
     with db.user_session(viewer.id) as s:
         item = s.get(Item, item_id)
         if item is None:
@@ -691,7 +693,8 @@ def item_page(request: Request, item_id: int, atirat: int | None = None, nezet: 
                    model_choices=_model_choices(runners, item), modes=MODES, cloud_models=CLOUD_MODELS,
                    local_models=LOCAL_MODELS, can_rerun=can_rerun, tags=tags, names=names, labels=labels,
                    translated=translated, item_language=item_language,
-                   can_translate=bool(chosen and jobs.needs_translation(chosen.language)), **status)
+                   can_translate=bool(chosen and jobs.needs_translation(chosen.language)), **status,
+                   **_chat_ctx(viewer, item.id, beszelgetes[:20]))
 
 
 @app.post("/elem/{item_id}/cimkek")
@@ -1290,7 +1293,7 @@ def _date(value: str) -> date | None:
 
 @app.get("/kereses", response_class=HTMLResponse)
 def search_page(request: Request, q: str = "", pontos: str = "", csatorna: str = "", nyelv: str = "", mod: str = "",
-                tol: str = "", ig: str = "", viewer: Viewer = Depends(current_viewer)):
+                tol: str = "", ig: str = "", beszelgetes: str = "", viewer: Viewer = Depends(current_viewer)):
     filters = search.Filters(channel=csatorna[:300], language=nyelv[:10], mode=mod if mod in MODES else "",
                              date_from=_date(tol), date_to=_date(ig))
     outcome = search.run(viewer.id, q, get_settings(), exact=pontos == "on", filters=filters) if q.strip() else None
@@ -1303,7 +1306,180 @@ def search_page(request: Request, q: str = "", pontos: str = "", csatorna: str =
                     links[(r.item["id"], h.chunk_id)] = f"https://www.youtube.com/watch?v={video}&t={int(h.start_s)}s"
     return _render(request, "search.html", viewer, q=q, exact=pontos == "on", outcome=outcome, filters=filters,
                    channels=search.channels(viewer.id), modes=library.MODE_LABELS, links=links,
-                   snippet=search.snippet, best_text=search.best_text, index_status=indexing.status(viewer.id))
+                   snippet=search.snippet, best_text=search.best_text, index_status=indexing.status(viewer.id),
+                   **_chat_ctx(viewer, None, beszelgetes[:20]))
+
+
+# ---- questions about an item or the library (round 6) -------------------------------------------
+
+def _chat_links(s, item: Item | None):
+    """(ts_link, needs) for an item's answers: [12:34] -> the video at that second, or the transcript
+    paragraph around it."""
+    if item is None:
+        return None
+    t = s.get(Transcript, item.main_transcript_id) if item.main_transcript_id else None
+    starts = sorted(p["start"] for p in library.turns(t.segments)) if t is not None else []
+
+    def link(seconds: int) -> tuple[str, bool]:
+        url = library.timestamp_url(item.source, seconds)
+        if url:
+            return url, True
+        anchor = max((st for st in starts if st <= seconds + 0.5), default=starts[0] if starts else 0)
+        return f"/elem/{item.id}#t{int(anchor)}", False
+    return link
+
+
+def _source_link(sources: list[dict[str, Any]]):
+    by_n = {int(src.get("n") or 0): src for src in sources}
+
+    def link(n: int, seconds: int | None) -> tuple[str, bool] | None:
+        src = by_n.get(n)
+        if src is None:
+            return None
+        if seconds is not None and src.get("youtube"):
+            return f"https://www.youtube.com/watch?v={src['youtube']}&t={int(seconds)}s", True
+        return f"/elem/{int(src['item_id'])}", False
+    return link
+
+
+def _chat_ctx(viewer: Viewer, item_id: int | None, wanted: str = "", error: str | None = None,
+              draft: str = "", sent: bool = False) -> dict[str, Any]:
+    """The conversation panel of an item page (item_id) or the Search page (None)."""
+    with db.user_session(viewer.id) as s:
+        item = s.get(Item, item_id) if item_id is not None else None
+        role = "public" if item is None or item.is_public else "private"
+        listed = chat.conversations(s, item_id)
+        conv = None
+        if wanted != "uj":
+            conv = next((c for c in listed if str(c.id) == wanted), None) if wanted else (listed[0] if listed else None)
+            if conv is None and wanted.isdigit():
+                found = s.get(Conversation, int(wanted))
+                conv = found if found is not None and found.item_id == item_id else None
+        rows = []
+        ts_link = _chat_links(s, item)
+        pending = None
+        if conv is not None:
+            for turn in chat.turns(s, conv.id):
+                src_link = _source_link(turn.question.sources or [])
+                rows.append({"q": turn.question, "a": turn.answer, "job": turn.job,
+                             "html": render.chat_html(turn.answer.content, ts_link, src_link) if turn.answer else None,
+                             "sources": turn.question.sources or []})
+            pending = chat.pending(s, conv.id)
+        ctx = {"chat_item": item, "chat_conv": conv, "chat_rows": rows, "chat_list": listed,
+               "chat_pending": pending, "chat_models": chat.offered(s, role), "chat_role": role,
+               "chat_ready": chat.can_answer(s), "chat_error": error, "chat_draft": draft,
+               "chat_base": f"/elem/{item.id}" if item is not None else "/kereses",
+               "chat_max": chat.MAX_QUESTION, "chat_sent": sent}
+    return ctx
+
+
+def _chat_partial(request: Request, viewer: Viewer, item_id: int | None, wanted: str = "",
+                  error: str | None = None, draft: str = "", sent: bool = False):
+    return _render(request, "_chat.html", viewer, **_chat_ctx(viewer, item_id, wanted, error, draft, sent))
+
+
+async def _ask(request: Request, viewer: Viewer, item_id: int | None):
+    form = await request.form()
+    text = str(form.get("question") or "")
+    conv_id = str(form.get("conversation_id") or "")
+    model = str(form.get("model") or "")
+    htmx = request.headers.get("HX-Request") == "true"
+    try:
+        cid = await run_in_threadpool(chat.ask, get_settings(), viewer.id, text, item_id,
+                                      int(conv_id) if conv_id.isdigit() else None, model)
+    except chat.ChatError as exc:
+        if htmx:
+            return await run_in_threadpool(_chat_partial, request, viewer, item_id, conv_id or "uj", str(exc), text)
+        back = f"/elem/{item_id}" if item_id is not None else "/kereses"
+        return _message(request, viewer, "A kérdés nem ment el", str(exc), back, 422)
+    if htmx:
+        return await run_in_threadpool(_chat_partial, request, viewer, item_id, str(cid), None, "", True)
+    base = f"/elem/{item_id}" if item_id is not None else "/kereses"
+    return _redirect(f"{base}?beszelgetes={cid}#kerdes")
+
+
+@app.post("/elem/{item_id}/kerdes")
+async def ask_item(item_id: int, request: Request, viewer: Viewer = Depends(authed_post)):
+    return await _ask(request, viewer, item_id)
+
+
+@app.post("/kereses/kerdes")
+async def ask_library(request: Request, viewer: Viewer = Depends(authed_post)):
+    return await _ask(request, viewer, None)
+
+
+def _conversation(viewer: Viewer, conv_id: int) -> Conversation | None:
+    with db.user_session(viewer.id) as s:
+        conv = s.get(Conversation, conv_id)
+        if conv is not None:
+            s.expunge(conv)
+        return conv
+
+
+@app.get("/beszelgetes/{conv_id}/reszlet", response_class=HTMLResponse)
+def conversation_part(request: Request, conv_id: int, viewer: Viewer = Depends(current_viewer)):
+    conv = _conversation(viewer, conv_id)
+    if conv is None:
+        return HTMLResponse('<p class="muted">Ez a beszélgetés már nincs meg.</p>', status_code=404)
+    return _chat_partial(request, viewer, conv.item_id, str(conv.id))
+
+
+@app.get("/beszelgetes/{conv_id}.md")
+def conversation_markdown(conv_id: int, viewer: Viewer = Depends(current_viewer)):
+    with db.user_session(viewer.id) as s:
+        conv = s.get(Conversation, conv_id)
+        if conv is None:
+            return PlainTextResponse("Nincs ilyen beszélgetés.", status_code=404)
+        item = s.get(Item, conv.item_id) if conv.item_id is not None else None
+        about = library.item_title(item) if item is not None else "a könyvtár (saját felvételek nélkül)"
+        text = chat.markdown(s, conv, about)
+    name = f"beszelgetes-{conv_id}.md"
+    return PlainTextResponse(text, media_type="text/markdown; charset=utf-8",
+                             headers={"Content-Disposition": f"attachment; filename=\"{name}\""})
+
+
+@app.get("/beszelgetes/{conv_id}")
+def conversation_open(conv_id: int, viewer: Viewer = Depends(current_viewer)):
+    conv = _conversation(viewer, conv_id)
+    if conv is None:
+        return _redirect("/beszelgetesek")
+    base = f"/elem/{conv.item_id}" if conv.item_id is not None else "/kereses"
+    return _redirect(f"{base}?beszelgetes={conv.id}#kerdes")
+
+
+@app.post("/beszelgetes/{conv_id}/ujra")
+async def conversation_retry(conv_id: int, request: Request, viewer: Viewer = Depends(authed_post)):
+    conv = await run_in_threadpool(_conversation, viewer, conv_id)
+    if conv is None:
+        return _redirect("/beszelgetesek")
+    await run_in_threadpool(chat.retry, viewer.id, conv_id)
+    if request.headers.get("HX-Request") == "true":
+        return await run_in_threadpool(_chat_partial, request, viewer, conv.item_id, str(conv_id))
+    return _redirect(f"/beszelgetes/{conv_id}")
+
+
+@app.post("/beszelgetes/{conv_id}/torles")
+async def conversation_delete(conv_id: int, request: Request, viewer: Viewer = Depends(authed_post)):
+    conv = await run_in_threadpool(_conversation, viewer, conv_id)
+    if conv is None:
+        return _redirect("/beszelgetesek")
+    await run_in_threadpool(chat.delete, viewer.id, conv_id)
+    if str((await request.form()).get("vissza") or "") == "lista":
+        return _redirect("/beszelgetesek")
+    base = f"/elem/{conv.item_id}" if conv.item_id is not None else "/kereses"
+    return _redirect(f"{base}#kerdes")
+
+
+@app.get("/beszelgetesek", response_class=HTMLResponse)
+def conversations_page(request: Request, viewer: Viewer = Depends(current_viewer)):
+    with db.user_session(viewer.id) as s:
+        convs = s.scalars(select(Conversation).order_by(Conversation.updated_at.desc()).limit(200)).all()
+        counts = dict(s.execute(select(ConversationMessage.conversation_id, func.count())
+                                .where(ConversationMessage.role == "user")
+                                .group_by(ConversationMessage.conversation_id)).all())
+        titles = {i.id: library.item_title(i) for i in s.scalars(
+            select(Item).where(Item.id.in_([c.item_id for c in convs if c.item_id])))}
+    return _render(request, "conversations.html", viewer, convs=convs, counts=counts, titles=titles)
 
 
 # ---- submit -------------------------------------------------------------------------------
@@ -1409,9 +1585,10 @@ async def _submit_upload(request: Request, viewer: Viewer, form: dict[str, str])
 
 def _jobs_context(viewer: Viewer) -> dict[str, Any]:
     with db.user_session(viewer.id) as s:
-        active = s.scalars(select(Job).where(Job.state.in_(ACTIVE)).order_by(Job.id)).all()
-        recent = s.scalars(select(Job).where(Job.state.not_in(ACTIVE)).order_by(Job.finished_at.desc().nulls_last(),
-                                                                              Job.id.desc()).limit(30)).all()
+        visible = Job.kind.not_in(jobs.QUIET_KINDS)  # questions are followed in their conversation
+        active = s.scalars(select(Job).where(Job.state.in_(ACTIVE), visible).order_by(Job.id)).all()
+        recent = s.scalars(select(Job).where(Job.state.not_in(ACTIVE), visible)
+                           .order_by(Job.finished_at.desc().nulls_last(), Job.id.desc()).limit(30)).all()
         runners = s.scalars(select(Runner).where(Runner.revoked_at.is_(None))).all()
     online = [r for r in runners if r.last_seen_at and (utcnow() - r.last_seen_at).total_seconds() < ONLINE_S]
     # queued jobs that none of the runners has declared it can do (e.g. local Whisper without a GPU)
