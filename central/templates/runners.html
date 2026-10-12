@@ -1,10 +1,14 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% from "_macros.html" import num %}
 {% block title %}Futtatók{% endblock %}
 {% block content %}
 <h1>Futtatók</h1>
-<p class="muted">A futtató a saját gépeden vagy VPS-eden végzi el a munkát (letöltés, felirat, átírás, összefoglaló); a kulcsaid nála maradnak.</p>
+<p class="muted">A futtató a saját gépeden vagy VPS-eden végzi el a munkát (letöltés, felirat, átírás, összefoglaló, kérdések); a kulcsaid nála maradnak.</p>
 {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
 {% if notice %}<p class="warn-box" role="status">{{ notice }}</p>{% endif %}
+
+{% macro pairing() %}
 <section class="card">
   <h2>Új futtató párosítása</h2>
   <ol>
@@ -19,22 +23,66 @@
     <p><button>Jóváhagyás</button></p>
   </form>
 </section>
+{% endmacro %}
+
+{% if not runners %}{{ pairing() }}{% endif %}
+
 <h2>Párosított futtatók</h2>
-{% if runners %}
-<ul class="jobs">
 {% for r in runners %}
-  <li class="card">
-    <div class="bar"><span><strong>{{ r.name }}</strong>
-      {% if r.revoked_at %}<span class="badge">visszavonva</span>{% elif r.id in online %}<span class="badge cloud">elérhető</span>{% else %}<span class="badge warn">nem jelentkezik</span>{% endif %}</span>
+{% set caps = r.capabilities or {} %}
+<section class="card runner{{ ' inactive' if r.revoked_at }}">
+  <div class="bar"><span class="runner-name"><strong>{{ r.name }}</strong>
+    {% if r.revoked_at %}<span class="badge">visszavonva</span>{% elif r.id in online %}<span class="badge own">elérhető</span>{% else %}<span class="badge warn">nem jelentkezik</span>{% endif %}</span>
     {% if not r.revoked_at %}<form method="post" action="/futtatok/{{ r.id }}/visszavonas" class="inline confirm" data-confirm="Visszavonod ezt a futtatót? Utána újra párosítani kell."><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="danger small">Visszavonás</button></form>{% endif %}</div>
-    <div class="meta">
-      {% if r.version %}verzió {{ r.version }}{% if r.protocol and r.protocol != protocol %} (régi protokoll){% endif %} · {% endif %}
-      utoljára: {{ r.last_seen_at|local if r.last_seen_at else 'még soha' }}
-      {% if r.capabilities.transcribe_modes %} · átírás: {% for m in r.capabilities.transcribe_modes %}{{ mode_labels.get(m, m) }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}
-      {% if r.capabilities.llm_roles %} · összefoglaló: {% for m in r.capabilities.llm_roles %}{{ {'public': 'nyilvános videók', 'private': 'saját felvételek'}.get(m, m) }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}
-    </div>
-  </li>
-{% endfor %}
-</ul>
-{% else %}<p class="muted">Még nincs futtatód.</p>{% endif %}
+  <div class="meta">
+    {% if r.version %}dwyt-runner {{ r.version }}{% if r.protocol and r.protocol != protocol %} (régi protokoll){% endif %} · {% endif %}utoljára: {{ r.last_seen_at|local if r.last_seen_at else 'még soha' }}
+    {% if caps.llm_server %} · LLM-szerver: {{ caps.llm_server }}{% endif %}
+  </div>
+  {% if not r.revoked_at and caps %}
+  <h3 class="runner-h">{{ icon("file", 16) }} Átírás</h3>
+  {% set modes = caps.transcribe_modes or [] %}
+  <ul class="cap-list">
+    <li><span class="badge {{ 'own' if 'captions' in modes else '' }}">{{ 'van' if 'captions' in modes else 'nincs' }}</span> <strong>YouTube-felirat</strong> <span class="muted">– ingyenes, gyors, beszélők nélkül</span></li>
+    <li><span class="badge {{ 'own' if 'local' in modes else '' }}">{{ 'van' if 'local' in modes else 'nincs' }}</span> <strong>Helyi Whisper</strong> <span class="muted">– {% if 'local' in modes %}a saját GPU-n ({{ (caps.whisper_models or [])|join(', ') }}), beszélőkkel; ha a GPU-gép ki van kapcsolva, megvárja{% else %}nincs beállítva (whisper_url){% endif %}</span></li>
+    <li><span class="badge {{ 'own' if 'cloud' in modes else '' }}">{{ 'van' if 'cloud' in modes else 'nincs' }}</span> <strong>Felhős átírás</strong> <span class="muted">– {% if 'cloud' in modes %}AssemblyAI, a futtatóban megadott kulccsal, a futtató tulajdonosának költségére{% else %}nincs AssemblyAI-kulcs{% endif %}</span></li>
+  </ul>
+
+  <h3 class="runner-h">{{ icon("sparkles", 16) }} Nyelvi modellek</h3>
+  {% if models[r.id] %}
+  <p class="muted">Ezeket a neveket választhatod az összefoglalónál, a fordításnál és a kérdéseknél. A név mögött ez fut:</p>
+  <div class="table-wrap">
+  <table class="models">
+    <thead><tr><th>Név</th><th>Mire való</th><th>Mi fut mögötte</th><th>Gondolkodás</th><th>Ha a GPU-gép ki van kapcsolva</th></tr></thead>
+    <tbody>
+    {% for m in models[r.id] %}{% set i = m.info %}
+      <tr>
+        <td class="model-name"><code>{{ m.name }}</code><div class="tags">{% for cls, text in m.tags %}<span class="badge {{ cls }}">{{ text }}</span>{% endfor %}</div></td>
+        <td data-label="Mire való">{% if i.description %}{{ i.description }}{% else %}<span class="muted">nincs leírás</span>{% endif %}</td>
+        <td data-label="Mi fut mögötte">{% if i.target_label %}{{ i.target_label }}{% elif i.where %}{{ m.name }}{% else %}<span class="muted">a futtató nem küldött részleteket</span>{% endif %}
+          {% set facts = [] %}
+          {% if i.where == 'local' %}{% set _ = facts.append('helyi GPU') %}{% elif i.where == 'cloud' %}{% set _ = facts.append('felhő' ~ (' (' ~ i.provider ~ ')' if i.provider else '')) %}{% endif %}
+          {% if i.context %}{% set _ = facts.append(num(i.context) ~ ' token kontextus') %}{% endif %}
+          {% if i.vision %}{% set _ = facts.append('képet is ért') %}{% endif %}
+          {% if facts %}<div class="muted">{{ facts|join(' · ') }}</div>{% endif %}</td>
+        <td data-label="Gondolkodás">{% if i.thinking is sameas true %}<span class="badge own">be</span>{% if i.thinking_budget %} <span class="muted">legfeljebb {{ num(i.thinking_budget) }} token</span>{% endif %}{% elif i.thinking is sameas false %}<span class="badge">ki</span>{% else %}<span class="muted">a modell alapértelmezése</span>{% endif %}</td>
+        <td data-label="Ha a GPU-gép ki van kapcsolva">{% if i.where == 'cloud' %}<span class="badge warn">felhő</span> mindig felhőben fut
+          {% elif i.where == 'local' and i.fallback %}{% set f = i.fallback[0] %}<span class="badge warn">felhő</span> {{ f.target_label or f.name }}{% if f.thinking is sameas true %}, gondolkodással{% elif f.thinking is sameas false %}, gondolkodás nélkül{% endif %}{% if f.provider %} <span class="muted">({{ f.provider }})</span>{% endif %}
+          {% elif i.where == 'local' %}<span class="badge own">csak helyi</span> megvárja a GPU-gépet, felhőbe nem kerül
+          {% else %}<span class="muted">nem ismert</span>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <details class="help"><summary>{{ icon("info", 15) }}Mit jelentenek az oszlopok?</summary>
+    <p class="muted"><strong>Gondolkodás:</strong> a modell a válasz előtt „végiggondolja” a feladatot; alaposabb, de lassabb, és több tokent használ. <strong>Ha a GPU-gép ki van kapcsolva:</strong> a felhős tartalék a futtató tulajdonosának kulcsával fut, és pénzbe kerül; a „csak helyi” modell ilyenkor megvárja a gépet. A leírást az AI-router (dwyt-airouter) adja; más LLM-szervernél a futtató <code>llm_model_notes</code> beállításából jön.</p>
+  </details>
+  {% elif caps.llm_roles %}<p class="muted">Nyelvi modell van ({{ caps.llm_roles|map('replace', 'public', 'nyilvános videók')|map('replace', 'private', 'saját felvételek')|join(', ') }}), de a futtató nem sorolja fel a neveit.</p>
+  {% else %}<p class="muted">Nincs nyelvi modell beállítva (llm_url, llm_public_model): összefoglaló, fordítás és kérdés nem kérhető ettől a futtatótól.</p>{% endif %}
+  {% if caps.llm_roles and 'llm_model_info' not in caps %}<p class="warn-box">Ez a futtató régebbi{% if r.version %} ({{ r.version }}){% endif %}: nem küld modell-leírást{% if 'ask' not in (caps.kinds or []) %}, és kérdésekre sem tud válaszolni{% endif %}. Frissítés: <code>uv tool install --force git+https://github.com/kzkz22/dwyt-runner</code>, majd a futtató újraindítása.</p>{% endif %}
+  {% endif %}
+</section>
+{% else %}<p class="muted">Még nincs futtatód.</p>{% endfor %}
+
+{% if runners %}{{ pairing() }}{% endif %}
 {% endblock %}

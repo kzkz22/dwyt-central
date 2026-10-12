@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import model_select, speaker_fields, info, llm_rows, num %}
+{% from "_macros.html" import model_select, model_options, speaker_fields, info, llm_rows, num %}
 {% from "_icons.html" import icon %}
 {% block title %}{{ item_title(item) }}{% endblock %}
 {% block content %}
@@ -64,7 +64,7 @@
     <summary>{{ 'Új összefoglaló' if summary else 'Összefoglaló kérése' }}</summary>
     <form method="post" action="/elem/{{ item.id }}/osszefoglalo" class="stack">
       <input type="hidden" name="csrf_token" value="{{ csrf }}">
-      {{ model_select(model_choices, item) }}
+      {{ model_select(summary_picker, item) }}
       <button class="small">Kérem</button>
     </form>
   </details>
@@ -136,7 +136,7 @@
     {% endif %}
     {% if can_translate and not translation and not translating %}
     <form method="post" action="/elem/{{ item.id }}/forditas" class="inline">
-      <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="transcript_id" value="{{ transcript.id }}">{% if model_choices %}<select name="model" aria-label="Modell"><option value="">A futtató alapértelmezése</option>{% for name in model_choices %}<option value="{{ name }}">{{ name }}</option>{% endfor %}</select>{% endif %}
+      <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="transcript_id" value="{{ transcript.id }}">{% if translate_picker.options %}<select name="model" aria-label="Modell">{{ model_options(translate_picker) }}</select>{% endif %}
       <button class="secondary small">Magyar fordítás kérése</button>
     </form>
     {% endif %}

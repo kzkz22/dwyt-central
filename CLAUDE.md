@@ -36,6 +36,9 @@ own recordings left out, snapshot stored in the question's `sources`) and queues
 (no tools: transcripts are untrusted). Conversations/messages tables under RLS; `render.chat_html` (escaped Markdown
 subset, links only from [12:34] / [#n 12:34]); `_chat.html` panel polls with htmx while a question is open; ask jobs
 are hidden from the Jobs page and never notify (`jobs.QUIET_KINDS`); per-user limit `ratelimit` "ask".
+`modelinfo.py` (decision 17.4): the runner's `llm_model_info` / `llm_server` / `llm_defaults` capabilities (what runs behind
+each LLM name, written by dwyt-airouter, reduced to known fields at claim); the Runners page table and the model pickers
+(`_macros.model_options` / `model_hint`, `data-hint` updated by app.js). Missing fields = older runner.
 Open: passkeys (not needed for now).
 Source of truth: `dwyt-docs` (`docs/terv.md`, `docs/protokoll.md`). Install: `docs/telepites.md`; tests need PostgreSQL
 (throw-away cluster from tests/pgcluster.py, or TEST_DATABASE_URL as superuser).

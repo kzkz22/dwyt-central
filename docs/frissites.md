@@ -93,6 +93,14 @@ Egyszeri lépések, a fenti frissítés **előtt**:
 3. A téma (világos / sötét) és a becsukott menü böngészőnként tárolódik; először a rendszer témáját követi.
 4. Ha az Apache-on saját `Content-Security-Policy` fejlécet állítottál be, abban is maradjon `default-src 'self'` (a betűtípus és az ikonok a központról jönnek, külső címről semmi).
 
+## Frissítés a 0.11.1-re (mi fut a modellnevek mögött)
+
+A Futtatók oldal futtatónként mutatja, mit tud, és táblázatban, mi fut az egyes nyelvi modellnevek mögött; a modellválasztók opciói és az alattuk lévő sor ugyanezt mondják röviden. Migráció nincs.
+
+1. AI-router: dwyt-airouter 0.3, `dwyt-airouter generate`, `systemctl restart dwyt-litellm` (dwyt-airouter, frissites.md).
+2. Futtató: `uv tool install --force git+https://github.com/kzkz22/dwyt-runner` (0.7 vagy újabb), majd újraindítás. A régebbi futtató továbbra is dolgozik, csak a leírások hiányoznak; az oldal ezt jelzi.
+3. A központ: a fenti frissítés.
+
 ## Frissítés a 0.11-re (kérdezés a könyvtárról)
 
 1. A fenti frissítés; a migráció (0011) magától lefut (beszélgetések táblái, új munkafajta).

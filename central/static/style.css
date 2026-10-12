@@ -498,8 +498,32 @@ button.icon-only .icon { margin: 0; }
 .chat-form { margin-top: 8px; }
 .chat-form textarea { min-height: 84px; margin-top: 0; }
 .chat-actions { justify-content: flex-end; margin-top: 8px; }
-.chat-actions select { width: auto; margin: 0; min-height: 38px; }
+.chat-actions select { width: auto; max-width: 100%; min-width: 0; flex: 0 1 auto; margin: 0; min-height: 38px; text-overflow: ellipsis; }
 .item.conv { align-items: center; }
 .item.conv .actions { flex-shrink: 0; }
 .md th, .md td { overflow-wrap: normal; word-break: normal; min-width: 5.5em; }
 .md th { text-transform: none; letter-spacing: 0; font-size: .82rem; color: hsl(var(--foreground)); }
+
+/* Runners page: what each runner can do and what runs behind its model names */
+.runner .runner-name { display: inline-flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.runner-h { display: flex; align-items: center; gap: 6px; margin: 18px 0 6px; font-size: .95rem; }
+.cap-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; font-size: .9rem; }
+.runner > .table-wrap { overflow-x: auto; border: 1px solid hsl(var(--border)); border-radius: var(--radius); margin: 6px 0; }
+.runner > .table-wrap table { min-width: 760px; margin: 0; }
+.models td, .models th { vertical-align: top; }
+.models td { font-size: .85rem; }
+.models .tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.model-pick { display: grid; gap: 4px; }
+.model-hint { margin: 2px 0 0; font-size: .85rem; }
+@media (max-width: 640px) {
+  .runner > .table-wrap { overflow: visible; }
+  .runner > .table-wrap table { min-width: 0; }
+  .models thead { display: none; }
+  .models, .models tbody, .models tr, .models td { display: block; }
+  .models tr { padding: 6px 0; border-bottom: 1px solid hsl(var(--border)); }
+  .models tr:last-child { border-bottom: 0; }
+  .models td { border: 0; padding: 4px 12px; }
+  .models td[data-label]::before { content: attr(data-label); display: block; color: hsl(var(--muted-foreground));
+    font-size: .7rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+}
+select { max-width: 100%; }

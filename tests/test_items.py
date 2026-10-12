@@ -165,7 +165,7 @@ def test_summary_and_translation_with_a_chosen_model(alice, anon):
     translate_next(anon, token)
     assert claim(anon, token, MODEL_CAPS).status_code == 204  # announces the models
     page = alice.get(f"/elem/{item_id}").text
-    assert '<option value="cloud/okos">' in page and "helyi" not in page.split("Összefoglaló kérése")[1][:600]
+    assert '<option value="cloud/okos" ' in page and "helyi" not in page.split("Összefoglaló kérése")[1][:600]
     r = post(alice, f"/elem/{item_id}/osszefoglalo", {"model": "nincs-ilyen"})
     assert r.status_code == 422 and "egyik futtatód sem ajánlja fel" in r.text
     assert post(alice, f"/elem/{item_id}/osszefoglalo", {"model": "cloud/okos"}).status_code == 303

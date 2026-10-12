@@ -158,6 +158,14 @@
       e.target.form.requestSubmit();
     }
   });
+  // model pickers: the line under the select says what runs behind the chosen name
+  document.addEventListener("change", function (e) {
+    const sel = e.target;
+    if (!(sel instanceof HTMLSelectElement) || !sel.dataset.hintTarget) return;
+    const box = document.getElementById(sel.dataset.hintTarget);
+    const opt = sel.options[sel.selectedIndex];
+    if (box && opt) (box.querySelector("span") || box).textContent = opt.dataset.hint || "";
+  });
   document.addEventListener("htmx:afterSwap", function () {
     const panel = document.getElementById("kerdes");
     if (panel && panel.dataset.sent) {

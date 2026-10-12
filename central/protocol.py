@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as sa_insert
 from starlette.concurrency import run_in_threadpool
 
-from . import db, jobs, ownfiles, ratelimit
+from . import db, jobs, modelinfo, ownfiles, ratelimit
 from .config import get_settings
 from .db import utcnow
 from .models import Item, Job, PairRequest, Runner, Source, User
@@ -174,6 +174,20 @@ class Capabilities(BaseModel):
     # models the user may choose per role (public / private) for summaries and translations
     llm_models: dict[Short, Annotated[list[Annotated[str, StringConstraints(max_length=100)]],
                                       Field(max_length=30)]] = Field(default_factory=dict, max_length=5)
+    # what runs behind each model name (round 6; from dwyt-airouter's LiteLLM), checked again by modelinfo
+    llm_model_info: dict[Annotated[str, StringConstraints(max_length=100)], dict[str, Any]] = Field(
+        default_factory=dict, max_length=40)
+    llm_server: str = Field(default="", max_length=60)
+    llm_defaults: dict[Annotated[str, StringConstraints(max_length=20)],
+                       Annotated[str, StringConstraints(max_length=100)]] = Field(default_factory=dict, max_length=10)
+
+    @field_validator("llm_model_info")
+    @classmethod
+    def _small_info(cls, value):
+        import json
+        if len(json.dumps(value)) > 40_000:
+            raise ValueError("llm_model_info too large")
+        return value
 
 
 class ClaimBody(BaseModel):
@@ -186,6 +200,11 @@ class ClaimBody(BaseModel):
 def _claim_once(runner: Runner, body: ClaimBody, version: int) -> dict | None:
     settings = get_settings()
     caps = body.capabilities.model_dump()
+    for key in ("llm_model_info", "llm_server", "llm_defaults"):
+        if key not in body.capabilities.model_fields_set:  # an older runner: the page says so
+            caps.pop(key, None)
+    if "llm_model_info" in caps:
+        caps["llm_model_info"] = modelinfo.sanitize(caps["llm_model_info"])
     with db.system_session() as s:
         r = s.get(Runner, runner.id)
         r.capabilities = {**caps, "tool_versions": body.tool_versions}

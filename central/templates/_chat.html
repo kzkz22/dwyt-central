@@ -1,5 +1,5 @@
 {% from "_icons.html" import icon %}
-{% from "_macros.html" import info, num %}
+{% from "_macros.html" import info, num, model_options, model_hint %}
 {# The conversation panel: an item's (chat_item) or the library's. Polls while a question is open. #}
 <section class="card chat" id="kerdes"{% if chat_sent %} data-sent="1"{% endif %}
   {% if chat_pending %}hx-get="/beszelgetes/{{ chat_conv.id }}/reszlet" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}>
@@ -68,11 +68,12 @@
     <textarea id="chat-q" name="question" rows="3" maxlength="{{ chat_max }}" hx-preserve="true" required
       placeholder="{{ 'Mit szeretnél tudni a videóról? (Ctrl+Enter: küldés)' if chat_item else 'Mit keresel a könyvtáradban? Például: mit mondtak a hőszivattyúk téli hatásfokáról? (Ctrl+Enter: küldés)' }}">{{ chat_draft }}</textarea>
     <div class="actions chat-actions">
-      {% if chat_models %}
+      {% if chat_picker.options %}
       <label class="sr-only" for="chat-model">Modell</label>
-      <select id="chat-model" name="model"><option value="">A futtató alapértelmezése</option>{% for m in chat_models %}<option value="{{ m }}">{{ m }}</option>{% endfor %}</select>
+      <select id="chat-model" name="model" data-hint-target="chat-model-hint">{{ model_options(chat_picker) }}</select>
       {% endif %}
       <button {% if chat_pending %}disabled title="Várd meg az előző válaszát"{% endif %}>{{ icon("send", 15) }}{{ 'Folytatás' if chat_conv else 'Kérdezek' }}</button>
     </div>
+    {% if chat_picker.options %}{{ model_hint(chat_picker, "chat-model-hint") }}{% endif %}
   </form>
 </section>

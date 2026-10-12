@@ -30,8 +30,9 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from starlette.concurrency import run_in_threadpool
 
-from . import (accounts, chat, db, export, indexing, items, jobs, library, mailer, mcp_server, notify, ownfiles,
-               personal, protocol, ratelimit, render, search, secretbox, security, sources, subscriptions, youtube)
+from . import (accounts, chat, db, export, indexing, items, jobs, library, mailer, mcp_server, modelinfo, notify,
+               ownfiles, personal, protocol, ratelimit, render, search, secretbox, security, sources, subscriptions,
+               youtube)
 from . import submit as submit_mod
 from .submit import CLOUD_MODELS, LOCAL_MODELS, MODES, parse_options
 from .config import Settings, get_settings
@@ -614,6 +615,14 @@ def _model_choices(runners: list[Runner], item: Item) -> list[str]:
     return jobs.offered_models(runners, "public" if item.is_public else "private")
 
 
+def _picker(runners: list[Runner], role: str, task: str) -> dict[str, Any]:
+    """A model picker: the offered names with what runs behind them, and the runner's default.
+    Own recordings use the runner's private model whatever the task."""
+    defaults = modelinfo.defaults(runners)
+    return modelinfo.picker(jobs.offered_models(runners, role), modelinfo.merged(runners),
+                            defaults.get("private" if role == "private" else task))
+
+
 def _status_context(s, item: Item) -> dict[str, Any]:
     item_jobs = s.scalars(select(Job).where(Job.item_id == item.id, Job.kind.not_in(jobs.QUIET_KINDS))
                           .order_by(Job.id.desc()).limit(10)).all()
@@ -686,11 +695,13 @@ def item_page(request: Request, item_id: int, atirat: int | None = None, nezet: 
     view = nezet if nezet in ("eredeti", "magyar", "mindketto") else ("mindketto" if translation else "eredeti")
     if not translation:
         view = "eredeti"
+    role_of = "public" if item.is_public else "private"
     return _render(request, "item.html", viewer, item=item, transcripts=transcripts, transcript=chosen,
                    paragraphs=paragraphs, links=links, summary=summary, summary_html=summary_html,
                    summary_reused=summary_reused, summary_versions=versions, translation=translation,
                    view=view, reused=reused, translating=translating, summarizing=summarizing,
-                   model_choices=_model_choices(runners, item), modes=MODES, cloud_models=CLOUD_MODELS,
+                   summary_picker=_picker(runners, role_of, "summarize"),
+                   translate_picker=_picker(runners, role_of, "translate"), modes=MODES, cloud_models=CLOUD_MODELS,
                    local_models=LOCAL_MODELS, can_rerun=can_rerun, tags=tags, names=names, labels=labels,
                    translated=translated, item_language=item_language,
                    can_translate=bool(chosen and jobs.needs_translation(chosen.language)), **status,
@@ -1366,7 +1377,7 @@ def _chat_ctx(viewer: Viewer, item_id: int | None, wanted: str = "", error: str 
                              "sources": turn.question.sources or []})
             pending = chat.pending(s, conv.id)
         ctx = {"chat_item": item, "chat_conv": conv, "chat_rows": rows, "chat_list": listed,
-               "chat_pending": pending, "chat_models": chat.offered(s, role), "chat_role": role,
+               "chat_pending": pending, "chat_picker": _picker(_runners(s), role, "ask"), "chat_role": role,
                "chat_ready": chat.can_answer(s), "chat_error": error, "chat_draft": draft,
                "chat_base": f"/elem/{item.id}" if item is not None else "/kereses",
                "chat_max": chat.MAX_QUESTION, "chat_sent": sent}
@@ -1664,9 +1675,32 @@ def _runners_context(viewer: Viewer) -> dict[str, Any]:
     with db.user_session(viewer.id) as s:
         runners = s.scalars(select(Runner).order_by(Runner.revoked_at.is_not(None), Runner.id)).all()
     now = utcnow()
-    return {"runners": runners,
+    return {"runners": runners, "models": {r.id: _runner_models(r) for r in runners},
             "online": {r.id for r in runners if r.last_seen_at and (now - r.last_seen_at).total_seconds() < ONLINE_S},
             "protocol": protocol.PROTOCOL, "base_url": get_settings().base_url}
+
+
+def _runner_models(r: Runner) -> list[dict[str, Any]]:
+    """The rows of a runner's model table: name, what it is for, what runs behind it."""
+    caps = r.capabilities or {}
+    offered = caps.get("llm_models") or {}
+    info = caps.get("llm_model_info") or {}
+    defaults = caps.get("llm_defaults") or {}
+    names: list[str] = []
+    for role in ("public", "private"):
+        for name in offered.get(role) or []:
+            if name not in names:
+                names.append(name)
+    rows = []
+    for name in names:
+        tags = [("cloud", "alap: " + modelinfo.ROLE_DEFAULTS[t].lower()) for t, n in defaults.items()
+                if n == name and t in modelinfo.ROLE_DEFAULTS and t != "private"]
+        if name in (offered.get("private") or []):
+            tags.append(("own", "saját felvételek"))
+        if not tags:
+            tags.append(("", "választható"))
+        rows.append({"name": name, "info": info.get(name) or {}, "tags": tags})
+    return rows
 
 
 @app.get("/futtatok", response_class=HTMLResponse)

@@ -8,14 +8,23 @@
 {%- if job.cancel_requested %} (megszakítás kérve){% endif %}
 {%- endmacro %}
 
-{% macro model_select(model_choices, item) -%}
-{% if model_choices %}
+{% macro model_options(p) -%}
+<option value="" data-hint="{{ p.default_hint }}">A futtató alapértelmezése{% if p.default_name %} ({{ p.default_name }}){% endif %}</option>
+{%- for o in p.options %}<option value="{{ o.name }}" data-hint="{{ o.hint }}">{{ o.text }}</option>{% endfor %}
+{%- endmacro %}
+
+{% macro model_hint(p, hint_id) -%}
+<p class="model-hint muted" id="{{ hint_id }}" aria-live="polite"><span>{{ p.default_hint }}</span></p>
+{%- endmacro %}
+
+{% macro model_select(p, item) -%}
+{% if p and p.options %}
+<div class="model-pick">
 <label>Modell
-  <select name="model">
-    <option value="">A futtató alapértelmezése</option>
-    {% for name in model_choices %}<option value="{{ name }}">{{ name }}</option>{% endfor %}
-  </select>
+  <select name="model" data-hint-target="summary-model-hint">{{ model_options(p) }}</select>
 </label>
+{{ model_hint(p, "summary-model-hint") }}
+</div>
 {% if not item.is_public %}<p class="muted">Saját felvétel: csak azok a modellek választhatók, amelyeket a futtatódon saját felvételhez engedélyeztél (<code>llm_private_models</code>).</p>{% endif %}
 {% endif %}
 {%- endmacro %}
