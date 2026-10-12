@@ -2,7 +2,7 @@
 {% block title %}Munkák{% endblock %}
 {% block content %}
 <h1>Munkák</h1>
-<div hx-get="/munkak/lista" hx-trigger="every 5s" hx-swap="innerHTML">
+<div hx-get="/munkak/lista{% if poll_query %}?{{ poll_query }}{% endif %}" hx-trigger="every 5s" hx-swap="innerHTML">
 {% include "_jobs.html" %}
 </div>
 <h2>Pótlás a teljes könyvtárra</h2>

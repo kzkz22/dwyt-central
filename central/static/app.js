@@ -159,6 +159,11 @@
     }
   });
   // model pickers: the line under the select says what runs behind the chosen name
+  // page size of the lists: submit on choice (the form is a plain POST without scripts too)
+  document.addEventListener("change", function (e) {
+    const sel = e.target;
+    if (sel instanceof HTMLSelectElement && sel.hasAttribute("data-autosubmit") && sel.form) sel.form.requestSubmit();
+  });
   document.addEventListener("change", function (e) {
     const sel = e.target;
     if (!(sel instanceof HTMLSelectElement) || !sel.dataset.hintTarget) return;

@@ -47,6 +47,8 @@ down to a share (no cloud LLM budget = public LLM jobs go out with role private,
 the owner's and accepted shared users' jobs in turn, leaving a job to the user's own online runner that fits it;
 `record_usage` counts cloud seconds / cloud answers (`ran_in_cloud`: model_used vs the model info's fallbacks);
 `usable_runners` (own + shared, no token hash) feeds the pickers, chat, jobs page and subscriptions.
+Lists (decision 17.7): `web._pager` (users.page_size 15/25/50, migration 0013, POST /lapmeret with a local `vissza`),
+`_macros.pager`; the Inbox counter (`inbox_new`) is added by `_render` to every full page; favicon in static/.
 Open: passkeys (not needed for now).
 Source of truth: `dwyt-docs` (`docs/terv.md`, `docs/protokoll.md`). Install: `docs/telepites.md`; tests need PostgreSQL
 (throw-away cluster from tests/pgcluster.py, or TEST_DATABASE_URL as superuser).

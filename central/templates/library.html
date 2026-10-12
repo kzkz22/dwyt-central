@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import pager %}
 {% block title %}Könyvtár{% endblock %}
 {% block content %}
 <div class="bar"><h1>Könyvtár</h1><a class="button" href="/uj">Új átirat</a></div>
@@ -40,12 +41,7 @@
   </li>
 {% endfor %}
 </ul>
-{% if pages > 1 %}
-{% set extra = ('&q=' ~ (q|urlencode) if q else '') ~ ('&szures=' ~ szures if szures else '') ~ ('&cimke=' ~ (cimke|urlencode) if cimke else '') %}
-<p class="actions">{% if page > 1 %}<a href="/?oldal={{ page - 1 }}{{ extra }}">Előző</a>{% endif %}
-<span class="muted">{{ page }}. oldal / {{ pages }}</span>
-{% if page < pages %}<a href="/?oldal={{ page + 1 }}{{ extra }}">Következő</a>{% endif %}</p>
-{% endif %}
+{{ pager(paging, csrf) }}
 {% elif q or szures or cimke %}
 <p class="muted">Nincs a szűrésnek megfelelő elem.</p>
 {% else %}

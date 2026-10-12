@@ -8,6 +8,9 @@
 <meta name="htmx-config" content='{"includeIndicatorStyles": false, "allowEval": false, "allowScriptTags": false}'>
 <title>{% block title %}dwyt{% endblock %} · dwyt</title>
 <link rel="preload" href="{{ asset('fonts/inter-latin-wght-normal.woff2') }}" as="font" type="font/woff2" crossorigin>
+<link rel="icon" href="{{ asset('favicon.svg') }}" type="image/svg+xml">
+<link rel="icon" href="{{ asset('favicon-32.png') }}" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="{{ asset('apple-touch-icon.png') }}">
 <link rel="stylesheet" href="{{ asset('style.css') }}">
 {# Theme and sidebar state before the first paint (an external file: the CSP allows no inline script). #}
 <script src="{{ asset('theme.js') }}"></script>
@@ -38,7 +41,7 @@
       <ul role="list">
         {% for href, ic, label in links %}
         {% set active = path == href or (href != "/" and path.startswith(href)) or (href == "/" and path.startswith("/elem/")) %}
-        <li><a href="{{ href }}" class="sb-link"{% if active %} aria-current="page"{% endif %}>{{ icon(ic) }}<span class="sb-label">{{ label }}</span>{% if active %}{{ icon("chevron", 14, "sb-chev") }}{% endif %}</a></li>
+        <li><a href="{{ href }}" class="sb-link"{% if active %} aria-current="page"{% endif %}>{{ icon(ic) }}<span class="sb-label">{{ label }}</span>{% if href == "/postalada" and inbox_new %}<span class="sb-count" aria-label="{{ inbox_new }} új videó vár">{{ inbox_new }}</span>{% endif %}{% if active %}{{ icon("chevron", 14, "sb-chev") }}{% endif %}</a></li>
         {% endfor %}
       </ul>
       {% endfor %}
@@ -60,8 +63,9 @@
   <div class="sb-backdrop" data-sidebar-close hidden></div>
   <div class="content">
     <header class="mobile-top">
-      <button type="button" class="icon-button" data-sidebar-open aria-controls="sidebar" aria-expanded="false" aria-label="Menü megnyitása">{{ icon("menu", 20) }}</button>
+      <button type="button" class="icon-button" data-sidebar-open aria-controls="sidebar" aria-expanded="false" aria-label="Menü megnyitása">{{ icon("menu", 20) }}{% if inbox_new %}<span class="dot" aria-hidden="true"></span>{% endif %}</button>
       <a class="brand" href="/">{{ logo(22) }}<span class="brand-name">dwyt</span></a>
+      <span class="mobile-spacer"></span>
       <button type="button" class="icon-button" data-theme-toggle aria-label="Sötét / világos téma">{{ icon("moon", 18, "when-light") }}{{ icon("sun", 18, "when-dark") }}</button>
     </header>
     <main id="main" tabindex="-1">

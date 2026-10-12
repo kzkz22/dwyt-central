@@ -61,3 +61,21 @@
                 ("Készült", x.created_at|local)] + extra -%}
 {{ info(rows) }}
 {%- endmacro %}
+
+{# Paging of a list (web._pager): previous / next, where we are, and the page size (remembered per user). #}
+{% macro pager(p, csrf, label="elem") -%}
+{% if p.total > p.sizes[0] %}
+<nav class="pager" aria-label="Lapozás">
+  <div class="pager-pages">
+    {% if p.prev %}<a class="button secondary small" href="{{ p.prev }}" rel="prev">‹ Előző</a>{% endif %}
+    <span class="muted">{{ p.page }}. oldal / {{ p.pages }} · {{ p.total }} {{ label }}</span>
+    {% if p.next %}<a class="button secondary small" href="{{ p.next }}" rel="next">Következő ›</a>{% endif %}
+  </div>
+  <form method="post" action="/lapmeret" class="pager-size">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="vissza" value="{{ p.first }}">
+    <label>Oldalanként <select name="meret" data-autosubmit>{% for n in p.sizes %}<option value="{{ n }}"{% if n == p.size %} selected{% endif %}>{{ n }}</option>{% endfor %}</select></label>
+    <noscript><button class="secondary small">Beállítás</button></noscript>
+  </form>
+</nav>
+{% endif %}
+{%- endmacro %}

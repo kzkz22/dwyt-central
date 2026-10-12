@@ -16,11 +16,11 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, Request
-from fastapi.responses import (HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response,
+from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response,
                                StreamingResponse)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -43,7 +43,7 @@ from .models import (ACTIVE, Channel, Conversation, ConversationMessage, InboxEn
 
 log = logging.getLogger("dwyt")
 HERE = Path(__file__).resolve().parent
-PAGE_SIZE = 30
+PAGE_SIZES = (15, 25, 50)  # the lists' page size, chosen by the user (users.page_size)
 LIBRARY_PREVIEW_CHARS = 700  # the summary preview of a library row: 2 lines on wide screens, 6 on phones
 
 @asynccontextmanager
@@ -63,6 +63,15 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(title="dwyt", docs_url=None, redoc_url=None, openapi_url=None, lifespan=_lifespan)
 app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon() -> FileResponse:
+    """Browsers and feed readers ask for this without reading the page's <link rel="icon">."""
+    return FileResponse(HERE / "static" / "favicon-32.png", media_type="image/png",
+                        headers={"Cache-Control": "public, max-age=604800"})
+
+
 app.include_router(protocol.router)
 # MCP clients (Hermes, OpenCode, Claude…): per-user tokens from the Settings page, see central/mcp_server.py
 app.router.routes.append(Route("/mcp", endpoint=mcp_server.endpoint, methods=["GET", "POST", "DELETE"]))
@@ -166,6 +175,7 @@ class Viewer:
     name: str | None
     role: str
     csrf: str
+    page_size: int = 25
 
     @property
     def is_admin(self) -> bool:
@@ -182,7 +192,8 @@ def _viewer(token: str | None) -> Viewer | None:
             return None
         if (utcnow() - sess.last_seen_at).total_seconds() > 60:
             sess.last_seen_at = utcnow()
-        return Viewer(user.id, user.email, user.name, user.role, sess.csrf_token)
+        return Viewer(user.id, user.email, user.name, user.role, sess.csrf_token,
+                      user.page_size if user.page_size in PAGE_SIZES else 25)
 
 
 async def current_viewer(request: Request) -> Viewer:
@@ -226,8 +237,40 @@ def _set_cookie(response: Response, token: str, settings: Settings, max_age: int
 
 
 def _render(request: Request, name: str, viewer: Viewer | None = None, status_code: int = 200, **ctx: Any):
+    if viewer is not None and not name.startswith("_"):  # full pages: the Inbox counter in the menu
+        ctx.setdefault("inbox_new", _inbox_new(viewer.id))
     return templates.TemplateResponse(request, name, {"viewer": viewer, "csrf": viewer.csrf if viewer else "",
                                                       **ctx}, status_code=status_code)
+
+
+def _inbox_new(user_id: int) -> int:
+    """New Inbox entries (waiting for a decision), for the counter next to Postaláda."""
+    with db.user_session(user_id) as s:
+        return s.scalar(select(func.count()).select_from(InboxEntry).where(InboxEntry.state == "new")) or 0
+
+
+def _pager(request: Request, viewer: Viewer, total: int, page: int, param: str = "oldal",
+           path: str | None = None) -> dict[str, Any]:
+    """Paging of a list: page, pages, offset and the links (the other query parameters kept).
+    path: the page the links lead to, when the list is rendered by a partial (htmx)."""
+    size = viewer.page_size
+    pages = max(1, -(-total // size))
+    page = min(max(1, page), pages)
+
+    def url(n: int) -> str:
+        params = [(k, v) for k, v in request.query_params.multi_items() if k != param]
+        if n > 1:
+            params.append((param, str(n)))
+        return (path or request.url.path) + ("?" + urlencode(params) if params else "")
+    return {"page": page, "pages": pages, "total": total, "size": size, "offset": (page - 1) * size,
+            "prev": url(page - 1) if page > 1 else None, "next": url(page + 1) if page < pages else None,
+            "first": url(1), "sizes": PAGE_SIZES, "param": param}
+
+
+def _back(raw: str) -> str:
+    """A local return address from a form (never another site)."""
+    raw = (raw or "/")[:2000]
+    return raw if raw.startswith("/") and not raw.startswith("//") and "\\" not in raw else "/"
 
 
 def _redirect(url: str) -> Response:
@@ -591,10 +634,9 @@ def library_page(request: Request, oldal: int = 1, q: str = "", szures: str = ""
         elif szures == "folyamatban":
             query = query.where(Item.id.in_(active or {0}))
         total = s.scalar(select(func.count()).select_from(query.subquery())) or 0
-        pages = max(1, -(-total // PAGE_SIZE))
-        page = min(max(1, oldal), pages)
+        pager = _pager(request, viewer, total, oldal)
         found = s.scalars(query.order_by(Item.created_at.desc(), Item.id.desc())
-                          .offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE)).all()
+                          .offset(pager["offset"]).limit(pager["size"])).all()
         mains = {t.id: t for t in s.scalars(select(Transcript).where(
             Transcript.id.in_([i.main_transcript_id for i in found if i.main_transcript_id])))}
         previews = {sm.id: render.plain_preview(sm.text, LIBRARY_PREVIEW_CHARS)
@@ -604,7 +646,7 @@ def library_page(request: Request, oldal: int = 1, q: str = "", szures: str = ""
         item_tags = personal.tags_by_item(s, [i.id for i in found])
         tag_list = personal.all_tags(s)
     return _render(request, "library.html", viewer, share_offers=sharing.open_offers(viewer.id),
-                   items=found, active=active, page=page, pages=pages, total=total,
+                   items=found, active=active, paging=pager, total=total,
                    has_runner=has_runner, q=q, szures=szures, filters=LIBRARY_FILTERS, mains=mains,
                    previews=previews, cimke=cimke, item_tags=item_tags, tag_list=tag_list)
 
@@ -1095,20 +1137,22 @@ async def channel_remove(sub_id: int, viewer: Viewer = Depends(authed_post)):
 
 
 @app.get("/postalada", response_class=HTMLResponse)
-def inbox_page(request: Request, allapot: str = "uj", viewer: Viewer = Depends(current_viewer)):
+def inbox_page(request: Request, allapot: str = "uj", oldal: int = 1, viewer: Viewer = Depends(current_viewer)):
     tab = allapot if allapot in INBOX_TABS else "uj"
     with db.user_session(viewer.id) as s:
         subscriptions.sync_inbox(s)
+        counts = dict(s.execute(select(InboxEntry.state, func.count()).group_by(InboxEntry.state)).all())
+        pager = _pager(request, viewer, sum(counts.get(st, 0) for st in INBOX_TABS[tab]), oldal)
         entries = s.scalars(select(InboxEntry).where(InboxEntry.state.in_(INBOX_TABS[tab]))
                             .order_by(InboxEntry.published_at.desc().nulls_last(), InboxEntry.id.desc())
-                            .limit(200)).all()
-        counts = dict(s.execute(select(InboxEntry.state, func.count()).group_by(InboxEntry.state)).all())
+                            .offset(pager["offset"]).limit(pager["size"])).all()
         job_map = {j.id: j for j in s.scalars(select(Job).where(Job.id.in_([e.job_id for e in entries if e.job_id])))}
         waiting = subscriptions.gpu_waiting(s)
         followed = s.scalar(select(func.count()).select_from(Subscription)) or 0
     tab_counts = {k: sum(counts.get(st, 0) for st in v) for k, v in INBOX_TABS.items()}
     return _render(request, "inbox.html", viewer, entries=entries, tab=tab, tabs=INBOX_LABELS, tab_counts=tab_counts,
-                   gpu_waiting=waiting, job_map=job_map, followed=followed, now=utcnow())
+                   gpu_waiting=waiting, job_map=job_map, followed=followed, now=utcnow(), paging=pager,
+                   inbox_new=counts.get("new", 0))
 
 
 @app.post("/postalada/{entry_id}/keres")
@@ -1307,18 +1351,22 @@ def _date(value: str) -> date | None:
 
 @app.get("/kereses", response_class=HTMLResponse)
 def search_page(request: Request, q: str = "", pontos: str = "", csatorna: str = "", nyelv: str = "", mod: str = "",
-                tol: str = "", ig: str = "", beszelgetes: str = "", viewer: Viewer = Depends(current_viewer)):
+                tol: str = "", ig: str = "", beszelgetes: str = "", oldal: int = 1,
+                viewer: Viewer = Depends(current_viewer)):
     filters = search.Filters(channel=csatorna[:300], language=nyelv[:10], mode=mod if mod in MODES else "",
                              date_from=_date(tol), date_to=_date(ig))
     outcome = search.run(viewer.id, q, get_settings(), exact=pontos == "on", filters=filters) if q.strip() else None
     links = {}
+    pager = _pager(request, viewer, len(outcome.results) if outcome else 0, oldal)
+    page_results = outcome.results[pager["offset"]:pager["offset"] + pager["size"]] if outcome else []
     if outcome:
-        for r in outcome.results:
+        for r in page_results:
             for h in r.hits:
                 if h.start_s is not None and r.item["kind"] == "youtube":
                     video = r.item["key"].split(":", 1)[1]
                     links[(r.item["id"], h.chunk_id)] = f"https://www.youtube.com/watch?v={video}&t={int(h.start_s)}s"
     return _render(request, "search.html", viewer, q=q, exact=pontos == "on", outcome=outcome, filters=filters,
+                   page_results=page_results, paging=pager,
                    channels=search.channels(viewer.id), modes=library.MODE_LABELS, links=links,
                    snippet=search.snippet, best_text=search.best_text, index_status=indexing.status(viewer.id),
                    **_chat_ctx(viewer, None, beszelgetes[:20]))
@@ -1486,15 +1534,17 @@ async def conversation_delete(conv_id: int, request: Request, viewer: Viewer = D
 
 
 @app.get("/beszelgetesek", response_class=HTMLResponse)
-def conversations_page(request: Request, viewer: Viewer = Depends(current_viewer)):
+def conversations_page(request: Request, oldal: int = 1, viewer: Viewer = Depends(current_viewer)):
     with db.user_session(viewer.id) as s:
-        convs = s.scalars(select(Conversation).order_by(Conversation.updated_at.desc()).limit(200)).all()
+        pager = _pager(request, viewer, s.scalar(select(func.count()).select_from(Conversation)) or 0, oldal)
+        convs = s.scalars(select(Conversation).order_by(Conversation.updated_at.desc(), Conversation.id.desc())
+                          .offset(pager["offset"]).limit(pager["size"])).all()
         counts = dict(s.execute(select(ConversationMessage.conversation_id, func.count())
                                 .where(ConversationMessage.role == "user")
                                 .group_by(ConversationMessage.conversation_id)).all())
         titles = {i.id: library.item_title(i) for i in s.scalars(
             select(Item).where(Item.id.in_([c.item_id for c in convs if c.item_id])))}
-    return _render(request, "conversations.html", viewer, convs=convs, counts=counts, titles=titles)
+    return _render(request, "conversations.html", viewer, convs=convs, counts=counts, titles=titles, paging=pager)
 
 
 # ---- submit -------------------------------------------------------------------------------
@@ -1615,12 +1665,19 @@ async def _submit_upload(request: Request, viewer: Viewer, form: dict[str, str])
 
 # ---- jobs ---------------------------------------------------------------------------------
 
-def _jobs_context(viewer: Viewer) -> dict[str, Any]:
+def _jobs_context(request: Request, viewer: Viewer, oldal: int = 1, korabbi: int = 1) -> dict[str, Any]:
+    """oldal: the page of the running / waiting jobs; korabbi: the page of the finished ones."""
     with db.user_session(viewer.id) as s:
         visible = Job.kind.not_in(jobs.QUIET_KINDS)  # questions are followed in their conversation
-        active = s.scalars(select(Job).where(Job.state.in_(ACTIVE), visible).order_by(Job.id)).all()
+        by_state = dict(s.execute(select(Job.state, func.count()).where(visible).group_by(Job.state)).all())
+        n_active = sum(n for st, n in by_state.items() if st in ACTIVE)
+        active_pager = _pager(request, viewer, n_active, oldal, "oldal", "/munkak")
+        recent_pager = _pager(request, viewer, sum(by_state.values()) - n_active, korabbi, "korabbi", "/munkak")
+        active = s.scalars(select(Job).where(Job.state.in_(ACTIVE), visible).order_by(Job.id)
+                           .offset(active_pager["offset"]).limit(active_pager["size"])).all()
         recent = s.scalars(select(Job).where(Job.state.not_in(ACTIVE), visible)
-                           .order_by(Job.finished_at.desc().nulls_last(), Job.id.desc()).limit(30)).all()
+                           .order_by(Job.finished_at.desc().nulls_last(), Job.id.desc())
+                           .offset(recent_pager["offset"]).limit(recent_pager["size"])).all()
         runners = _runners(s, viewer.id)
     online = [r for r in runners if sharing.online(r)]
     # queued jobs that none of the runners has declared it can do (e.g. local Whisper without a GPU)
@@ -1629,17 +1686,18 @@ def _jobs_context(viewer: Viewer) -> dict[str, Any]:
     with db.user_session(viewer.id) as s:
         counts = items.backfill_counts(s)
     return {"active": active, "recent": recent, "runner_count": len(runners), "online_count": len(online),
-            "unfit": unfit, "backfill": counts}
+            "unfit": unfit, "backfill": counts, "active_pager": active_pager, "recent_pager": recent_pager,
+            "poll_query": request.url.query}
 
 
 @app.get("/munkak", response_class=HTMLResponse)
-def jobs_page(request: Request, viewer: Viewer = Depends(current_viewer)):
-    return _render(request, "jobs.html", viewer, **_jobs_context(viewer))
+def jobs_page(request: Request, oldal: int = 1, korabbi: int = 1, viewer: Viewer = Depends(current_viewer)):
+    return _render(request, "jobs.html", viewer, **_jobs_context(request, viewer, oldal, korabbi))
 
 
 @app.get("/munkak/lista", response_class=HTMLResponse)
-def jobs_partial(request: Request, viewer: Viewer = Depends(current_viewer)):
-    return _render(request, "_jobs.html", viewer, **_jobs_context(viewer))
+def jobs_partial(request: Request, oldal: int = 1, korabbi: int = 1, viewer: Viewer = Depends(current_viewer)):
+    return _render(request, "_jobs.html", viewer, **_jobs_context(request, viewer, oldal, korabbi))
 
 
 BACKFILL = {"osszefoglalok": "summaries", "forditasok": "translations", "indexeles": "index"}
@@ -1806,6 +1864,23 @@ async def accept_share(request: Request, share_id: int, viewer: Viewer = Depends
 async def remove_share(request: Request, share_id: int, viewer: Viewer = Depends(authed_post)):
     return await _share_action(request, viewer, lambda: sharing.remove(viewer.id, share_id),
                                "A megosztás megszűnt. A már futó munkák még befejeződnek.")
+
+
+@app.post("/lapmeret")
+async def set_page_size(request: Request, viewer: Viewer = Depends(authed_post)):
+    """The page size of the lists (15 / 25 / 50), remembered for the user; back to the list's first page."""
+    form = await request.form()
+    raw = str(form.get("meret", ""))
+
+    def save() -> None:
+        size = int(raw) if raw.isdigit() and int(raw) in PAGE_SIZES else None
+        if size is not None:
+            with db.system_session() as s:
+                user = s.get(User, viewer.id)
+                if user is not None:
+                    user.page_size = size
+    await run_in_threadpool(save)
+    return _redirect(_back(str(form.get("vissza", "/"))))
 
 
 # ---- admin --------------------------------------------------------------------------------

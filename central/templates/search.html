@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import pager %}
 {% block title %}Keresés{% endblock %}
 {% block content %}
 <h1>Keresés</h1>
@@ -31,7 +32,7 @@
   {% if outcome.meaning_error %}<p class="warn-box">A jelentés szerinti keresés most nem érhető el, csak szöveges találatok látszanak.</p>{% endif %}
   {% if not outcome.results %}<p class="card">Nincs találat.</p>{% endif %}
   <ul class="results">
-  {% for r in outcome.results %}
+  {% for r in page_results %}
     {% set it = r.item %}
     <li class="result card">
       <a href="/elem/{{ it.id }}" class="title">{{ it.title }}</a>
@@ -54,6 +55,7 @@
     </li>
   {% endfor %}
   </ul>
+  {{ pager(paging, csrf, "találat") }}
 {% endif %}
 {% if outcome %}{% include "_chat.html" %}{% endif %}
 {% endblock %}

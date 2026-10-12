@@ -182,7 +182,12 @@ main:focus { outline: none; }
   .mobile-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; position: sticky; top: 0;
     z-index: 30; padding: 8px 8px; min-height: 56px; background: hsl(var(--background) / .88);
     backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-bottom: 1px solid hsl(var(--border)); }
-  .mobile-top .brand { flex: 0; color: hsl(var(--primary)); gap: 8px; }
+  .mobile-top { justify-content: flex-start; }
+  .mobile-top .brand { flex: 0 0 auto; color: hsl(var(--primary)); gap: 8px; }
+  .mobile-top .mobile-spacer { flex: 1; }
+  .mobile-top [data-sidebar-open] { position: relative; }
+  .mobile-top .dot { position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%;
+    background: hsl(var(--primary)); box-shadow: 0 0 0 2px hsl(var(--background)); }
   main { padding: 18px 16px 40px; }
 }
 
@@ -266,7 +271,9 @@ a.badge:hover { border-color: hsl(var(--primary) / .5); }
 
 /* filters and search rows */
 .filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 0 0 14px; }
-.filters input[type=search], .filters input:not([type]) { flex: 1 1 240px; min-width: 0; width: auto; margin: 0; }
+/* as specific as the general input rule, or its margin-top pushes the field below the select next to it */
+.filters input:not([type=radio]):not([type=checkbox]):not([type=file]) { flex: 1 1 240px; min-width: 0; width: auto;
+  margin: 0; }
 .filters select { width: auto; flex: 0 0 auto; margin: 0; }
 .filters label { margin: 0; }
 .filters .muted { flex-basis: 100%; }
@@ -553,3 +560,16 @@ select { max-width: 100%; }
     font-size: .7rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
   .cap-list .quota { margin-left: 0; }
 }
+
+/* Paging of the lists */
+.pager { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin: 14px 0; }
+.pager-pages { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.pager-size label { display: flex; align-items: center; gap: 8px; margin: 0; font-size: .85rem; color: hsl(var(--muted-foreground)); }
+.pager-size select { width: auto; margin: 0; min-height: 34px; padding-top: 4px; padding-bottom: 4px; }
+
+/* the count of new Inbox videos next to "Postaláda" */
+.sb-count { margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; display: inline-flex;
+  align-items: center; justify-content: center; font-size: .72rem; font-weight: 600; line-height: 1;
+  background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); }
+.sb-count + .sb-chev { margin-left: 6px; }
+.sb-collapsed .sb-count { position: absolute; top: 2px; right: 2px; min-width: 16px; height: 16px; padding: 0 4px; font-size: .62rem; }

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon %}
+{% from "_macros.html" import pager %}
 {% block title %}Beszélgetések{% endblock %}
 {% block content %}
 <div class="bar"><h1>Beszélgetések</h1>
@@ -24,5 +25,6 @@
   </li>
 {% endfor %}
 </ul>
+{{ pager(paging, csrf, "beszélgetés") }}
 {% else %}<p class="card">Még nincs beszélgetésed.</p>{% endif %}
 {% endblock %}

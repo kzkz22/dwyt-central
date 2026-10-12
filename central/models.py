@@ -34,6 +34,7 @@ class User(Base):
     created_at: Mapped[datetime] = _now()
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     translate_auto: Mapped[bool] = mapped_column(Boolean, default=True)
+    page_size: Mapped[int] = mapped_column(Integer, default=25)
     quota_storage_mb: Mapped[int | None] = mapped_column(Integer)
     quota_upload_mb: Mapped[int | None] = mapped_column(Integer)
     totp_after_google: Mapped[bool] = mapped_column(Boolean, default=False)

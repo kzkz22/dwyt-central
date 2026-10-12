@@ -1,3 +1,4 @@
+{% from "_macros.html" import pager %}
 {% if runner_count == 0 %}
 <p class="warn-box">Nincs párosított futtatód, ezért a munkák nem indulnak el. <a href="/futtatok">Futtató párosítása</a></p>
 {% elif online_count == 0 and active %}
@@ -14,6 +15,7 @@
   </li>
 {% endfor %}
 </ul>
+{{ pager(active_pager, csrf, "munka") }}
 {% else %}<p class="muted">Nincs futó vagy várakozó munka.</p>{% endif %}
 <h2>Legutóbbiak</h2>
 {% if recent %}
@@ -26,4 +28,5 @@
   </li>
 {% endfor %}
 </ul>
+{{ pager(recent_pager, csrf, "munka") }}
 {% else %}<p class="muted">Még nincs befejezett munka.</p>{% endif %}

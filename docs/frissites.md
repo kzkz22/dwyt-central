@@ -93,6 +93,12 @@ Egyszeri lépések, a fenti frissítés **előtt**:
 3. A téma (világos / sötét) és a becsukott menü böngészőnként tárolódik; először a rendszer témáját követi.
 4. Ha az Apache-on saját `Content-Security-Policy` fejlécet állítottál be, abban is maradjon `default-src 'self'` (a betűtípus és az ikonok a központról jönnek, külső címről semmi).
 
+## Frissítés a 0.13-ra (lapozás, Postaláda-számláló, ikon)
+
+1. A fenti frissítés; a migráció (0013) magától lefut (a felhasználó lapmérete).
+2. Újdonságok: lapozás 15 / 25 / 50 elemenként a Könyvtár, Keresés, Beszélgetések, Postaláda és Munkák oldalon (a választást fiókonként megjegyzi, minden eszközön); a menüben a Postaláda mellett az új videók száma; böngészőfül-ikon; mobilon a logó a menügomb mellett balra.
+3. Ha az Apache-ban a `/favicon.ico` máshová mutatna, azt vedd ki: a központ maga szolgálja ki.
+
 ## Frissítés a 0.12.3-ra (hosszabb összefoglaló-előnézet)
 
 Csak a felület: a Könyvtár sorában az összefoglaló előnézete álló telefonon 6 sor (eddig 2), szélesebb képernyőn továbbra is 2. Az előnézet a címsorokat kihagyja, a felsorolás pontjait viszont már tartalmazza. A fenti frissítés elég.
