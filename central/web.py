@@ -1855,8 +1855,18 @@ async def pair_runner(request: Request, viewer: Viewer = Depends(authed_post)):
         return _render(request, "runners.html", viewer, status_code=422, **_runners_context(viewer),
                        error="Nincs ilyen érvényes párosítókód. Nézd meg a futtató kiírását, és ügyelj rá, "
                              "hogy 10 percig érvényes.")
-    return _render(request, "runners.html", viewer, **_runners_context(viewer),
-                   notice="Jóváhagyva. A futtató pár másodpercen belül megkapja a tokenjét, és munkát kér.")
+    return _render(request, "runners.html", viewer, **_runners_context(viewer), approved_code=str(form.get("code", "")),
+                   notice="Jóváhagyva. Várom, hogy a futtató jelentkezzen; ez pár másodperc, és az oldal magától "
+                          "frissül.")
+
+
+@app.get("/futtatok/parositas-allapot")
+async def pairing_state(kod: str = "", viewer: Viewer = Depends(current_viewer)):
+    """Polled by the page after an approval: once the runner has its token, the page reloads (htmx)."""
+    done = await run_in_threadpool(protocol.pairing_collected, viewer.id, kod)
+    if not done:
+        return Response(status_code=204)
+    return Response(status_code=200, headers={"HX-Redirect": "/futtatok"})
 
 
 @app.post("/futtatok/{runner_id}/visszavonas")

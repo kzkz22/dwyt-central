@@ -144,6 +144,16 @@ async def pair_poll(body: PairPoll, _v: int = Depends(check_version)):
     return JSONResponse(data, status_code=status)
 
 
+def pairing_collected(user_id: int, code: str) -> bool:
+    """False while this user's approved code still waits for its runner to fetch the token."""
+    code = normalise_code(code)
+    if not code:
+        return True
+    with db.system_session() as s:
+        req = s.scalar(select(PairRequest).where(PairRequest.code == code))
+        return req is None or req.user_id != user_id or req.expires_at <= utcnow()
+
+
 def approve_pairing(user_id: int, code: str, name: str) -> bool:
     """Called from the web UI by the signed-in user who typed the code."""
     code = normalise_code(code)

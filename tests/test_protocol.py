@@ -207,3 +207,16 @@ def test_the_runner_window_opens_the_page_with_its_code_filled_in(alice):
     assert "ugyanez a kód látszik: KX7-4PM" in page  # compare it with the window before approving
     odd = alice.get('/futtatok?kod="><script>x</script>&nev=' + "n" * 200).text
     assert "<script>x" not in odd and 'value=""' in odd and "n" * 81 not in odd
+
+
+def test_after_approval_the_page_reloads_once_the_runner_has_its_token(alice, anon):
+    start = anon.post("/runner/v1/pair/start", headers=PROTO).json()
+    r = post(alice, "/futtatok/parositas", {"code": start["code"], "name": "dolgozószoba"})
+    assert "hx-get=\"/futtatok/parositas-allapot?kod=" in r.text and "magától" in r.text
+    url = "/futtatok/parositas-allapot?kod=" + start["code"]
+    assert alice.get(url).status_code == 204  # the runner has not asked yet
+    done = anon.post("/runner/v1/pair/poll", json={"poll_id": start["poll_id"]}, headers=PROTO)
+    assert done.status_code == 200
+    r = alice.get(url)
+    assert r.status_code == 200 and r.headers["HX-Redirect"] == "/futtatok"
+    assert "dolgozószoba" in alice.get("/futtatok").text

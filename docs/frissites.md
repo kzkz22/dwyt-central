@@ -93,6 +93,10 @@ Egyszeri lépések, a fenti frissítés **előtt**:
 3. A téma (világos / sötét) és a becsukott menü böngészőnként tárolódik; először a rendszer témáját követi.
 4. Ha az Apache-on saját `Content-Security-Policy` fejlécet állítottál be, abban is maradjon `default-src 'self'` (a betűtípus és az ikonok a központról jönnek, külső címről semmi).
 
+## Frissítés a 0.14.3-ra (a Futtatók oldal magától frissül párosítás után)
+
+Csak a felület: a Jóváhagyás után a Futtatók oldal pár másodpercenként megnézi, megkapta-e már a futtató a tokenjét, és ha igen, magától újratölt; így az új futtató kézi frissítés nélkül megjelenik. A fenti frissítés elég.
+
 ## Frissítés a 0.14.2-re (párosítás a futtató ablakából)
 
 Csak a felület: a Futtatók oldal `?kod=…&nev=…` címmel kitöltött párosítókóddal nyílik meg. Ezt a futtató telepítő ablaka nyitja meg (dwyt-runner 0.9). Jóváhagyni továbbra is a gombbal kell; az oldal kéri, hogy a kódot vesd össze a futtató ablakában látható kóddal. A fenti frissítés elég.
