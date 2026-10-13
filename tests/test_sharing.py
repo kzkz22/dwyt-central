@@ -200,3 +200,38 @@ def test_revoked_runner_is_no_longer_shared(alice, bob, anon):
     assert "Megosztott futtatók" in bob.get("/futtatok").text
     post(alice, f"/futtatok/{rid}/visszavonas")
     assert "Megosztott futtatók" not in bob.get("/futtatok").text
+
+
+def test_switched_off_runners_get_no_new_jobs_but_stay_paired(alice, bob, anon):
+    token = pair_runner(alice, anon)
+    claim(anon, token, INFO_CAPS)
+    rid = runner_id()
+    page = alice.get("/futtatok").text
+    assert f'action="/futtatok/{rid}/kikapcsolas"' in page and "Kikapcsolás" in page
+    post(alice, f"/futtatok/{rid}/kikapcsolas", {"ki": "1"})
+    page = alice.get("/futtatok").text
+    assert "kikapcsolva" in page and "Bekapcsolás" in page and "visszavonva" not in page
+    submit(alice)
+    assert claim(anon, token, INFO_CAPS).status_code == 204  # off: nothing for its owner
+    note = alice.get("/").text
+    assert "Minden futtatódat kikapcsoltad" in note and "Még nincs futtatód" not in note
+    # shared with bob: alice's switch is alice's own, bob still gets work through it
+    share(alice, rid)
+    sid = accept(bob)
+    submit(bob)
+    job = claim(anon, token, INFO_CAPS).json()
+    assert rows("SELECT user_id FROM jobs WHERE id = :j", j=job["job_id"])[0][0] != rows(
+        "SELECT id FROM users WHERE email = 'alice@example.com'")[0][0]
+    finish(anon, token, job, transcript_result(title="Bob videója"))
+    # bob switches the shared runner off for himself: no more jobs for him either
+    post(bob, f"/futtatok/megosztas/{sid}/kikapcsolas", {"ki": "1"})
+    assert "kikapcsolva" in bob.get("/futtatok").text
+    submit(bob, video="aqz-KE-bpKQ")
+    assert claim(anon, token, INFO_CAPS).status_code == 204
+    # only the share's user may switch it, only the owner the runner
+    post(alice, f"/futtatok/megosztas/{sid}/kikapcsolas", {"ki": "0"})
+    post(bob, f"/futtatok/{rid}/kikapcsolas", {"ki": "0"})
+    assert claim(anon, token, INFO_CAPS).status_code == 204
+    # on again: the waiting jobs go out
+    post(alice, f"/futtatok/{rid}/kikapcsolas", {"ki": "0"})
+    assert claim(anon, token, INFO_CAPS).json()["kind"] == "transcribe"

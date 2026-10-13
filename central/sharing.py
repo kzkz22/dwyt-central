@@ -24,7 +24,7 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, true
 from sqlalchemy.orm import Session as DbSession
 
 from . import db
@@ -142,6 +142,7 @@ class SharedRunner:
     capabilities: dict[str, Any]
     share: dict[str, Any]
     revoked_at: None = None
+    paused_at: datetime | None = None
     shared: bool = True
     usage: dict[str, Any] = field(default_factory=dict)
 
@@ -158,15 +159,17 @@ def _display(user: User | None) -> str:
     return (user.name or user.email) if user is not None else "?"
 
 
-def shared_with(user_id: int, accepted: bool = True) -> list[SharedRunner]:
-    """Runners shared with this user (accepted ones, or the open offers)."""
+def shared_with(user_id: int, accepted: bool = True, switched_off: bool = True) -> list[SharedRunner]:
+    """Runners shared with this user (accepted ones, or the open offers); switched_off=False leaves out the
+    ones the user switched off (decision 18.14)."""
     out: list[SharedRunner] = []
     month = month_key()
     with db.system_session() as s:
         rows = s.execute(select(RunnerShare, Runner).join(Runner, Runner.id == RunnerShare.runner_id)
                          .where(RunnerShare.user_id == user_id, Runner.revoked_at.is_(None),
                                 RunnerShare.accepted_at.is_not(None) if accepted
-                                else RunnerShare.accepted_at.is_(None))
+                                else RunnerShare.accepted_at.is_(None),
+                                true() if switched_off else RunnerShare.paused_at.is_(None))
                          .order_by(RunnerShare.id)).all()
         for sh, r in rows:
             owner = s.get(User, sh.owner_id)
@@ -177,14 +180,37 @@ def shared_with(user_id: int, accepted: bool = True) -> list[SharedRunner]:
                 id=r.id, name=r.name, user_id=r.user_id, owner_name=_display(owner), last_seen_at=r.last_seen_at,
                 version=r.version, protocol=r.protocol,
                 capabilities=effective_caps(r.capabilities or {}, sh, remaining(sh, usage)),
-                share=_share_dict(sh, usage)))
+                share=_share_dict(sh, usage), paused_at=sh.paused_at))
     return out
 
 
 def usable_runners(s: DbSession, user_id: int) -> list[Any]:
-    """The user's own runners, then the runners shared with them (accepted)."""
-    own = list(s.scalars(select(Runner).where(Runner.revoked_at.is_(None)).order_by(Runner.id)))
-    return own + shared_with(user_id)
+    """The user's own runners, then the runners shared with them (accepted); switched-off ones left out."""
+    own = list(s.scalars(select(Runner).where(Runner.revoked_at.is_(None), Runner.paused_at.is_(None))
+                         .order_by(Runner.id)))
+    return own + shared_with(user_id, switched_off=False)
+
+
+def switched_off_count(s: DbSession, user_id: int) -> int:
+    """How many of the user's runners (own or shared) they switched off."""
+    own = s.scalar(select(func.count()).select_from(Runner).where(
+        Runner.revoked_at.is_(None), Runner.paused_at.is_not(None))) or 0
+    return own + len([r for r in shared_with(user_id) if r.paused_at is not None])
+
+
+def set_switched_off(user_id: int, runner_id: int | None, share_id: int | None, off: bool) -> None:
+    """Switch an own runner (by its owner) or a shared one (by the user it is shared with) off or on."""
+    with db.system_session() as s:
+        if runner_id is not None:
+            runner = s.get(Runner, runner_id)
+            if runner is None or runner.user_id != user_id or runner.revoked_at is not None:
+                raise ShareError("Nincs ilyen futtatód.")
+            runner.paused_at = utcnow() if off else None
+        else:
+            sh = s.get(RunnerShare, share_id)
+            if sh is None or sh.user_id != user_id or sh.accepted_at is None:
+                raise ShareError("Nincs ilyen megosztott futtató.")
+            sh.paused_at = utcnow() if off else None
 
 
 def owner_shares(owner_id: int) -> dict[int, list[dict[str, Any]]]:
@@ -284,7 +310,8 @@ def claim_caps(s: DbSession, runner: Runner, caps: dict[str, Any]) -> dict[int, 
     month = month_key()
     out: dict[int, dict[str, Any]] = {}
     for sh in s.scalars(select(RunnerShare).where(RunnerShare.runner_id == runner.id,
-                                                  RunnerShare.accepted_at.is_not(None))):
+                                                  RunnerShare.accepted_at.is_not(None),
+                                                  RunnerShare.paused_at.is_(None))):
         user = s.get(User, sh.user_id)
         if user is None or user.disabled:
             continue
@@ -294,7 +321,8 @@ def claim_caps(s: DbSession, runner: Runner, caps: dict[str, Any]) -> dict[int, 
 
 def own_runner_can(s: DbSession, user_id: int, job: Job, fits) -> bool:
     """Is one of the user's own runners online and able to do this job? Then it is theirs."""
-    for r in s.scalars(select(Runner).where(Runner.user_id == user_id, Runner.revoked_at.is_(None))):
+    for r in s.scalars(select(Runner).where(Runner.user_id == user_id, Runner.revoked_at.is_(None),
+                                            Runner.paused_at.is_(None))):
         if online(r) and fits(job, r.capabilities or {}, r.id):
             return True
     return False

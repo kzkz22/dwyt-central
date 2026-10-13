@@ -54,7 +54,7 @@ subscriptions.captions_policy override (migration 0014), per-submission `machine
 `job.payload.captions_policy` (not in options: recipes stay shared); `jobs.store_result` refuses a machine-captions
 result the rule does not accept (`fail(..., "next_step")`: subscription chain moves on, a submission fails with a
 message); `reuse.find` takes over captions only if accepted; `web._silent_note` (runner silent > 1 h, jobs waiting).
-Open: passkeys (not needed for now).
+0.15 (decision 18.14): runners.paused_at (owner) / runner_shares.paused_at (the share's user), migration 0015; `sharing.set_switched_off`, `usable_runners` / `shared_with(switched_off=False)` / `claim_caps` / `own_runner_can` / `jobs.claim` skip switched-off ones; `_silent_note` says when all are off. Open: passkeys (not needed for now).
 Source of truth: `dwyt-docs` (`docs/terv.md`, `docs/protokoll.md`). Install: `docs/telepites.md`; tests need PostgreSQL
 (throw-away cluster from tests/pgcluster.py, or TEST_DATABASE_URL as superuser).
 License: AGPL-3.0.

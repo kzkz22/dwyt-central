@@ -183,7 +183,11 @@ def claim(s: DbSession, runner: Runner, caps: dict[str, Any], settings: Settings
     within that share's effective capabilities, in turn between the users."""
     from . import sharing
     caps_of = {runner.user_id: caps, **sharing.claim_caps(s, runner, caps)}
+    if runner.paused_at is not None:  # switched off by its owner: only the users it is shared with (18.14)
+        caps_of.pop(runner.user_id)
     users = list(caps_of)
+    if not users:
+        return None
     for user_id in users:
         requeue_expired(s, user_id, settings)
     now = utcnow()

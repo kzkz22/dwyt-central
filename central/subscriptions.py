@@ -321,13 +321,14 @@ def _link_existing(s: DbSession, entry: InboxEntry) -> bool:
 
 
 def _whisper_model(s: DbSession, user_id: int) -> str:
-    for runner in s.scalars(select(Runner).where(Runner.user_id == user_id, Runner.revoked_at.is_(None))
+    for runner in s.scalars(select(Runner).where(Runner.user_id == user_id, Runner.revoked_at.is_(None),
+                                                 Runner.paused_at.is_(None))
                             .order_by(Runner.last_seen_at.desc().nulls_last())):
         models = (runner.capabilities or {}).get("whisper_models") or []
         if models:
             return str(models[0])
     from . import sharing
-    for shared in sharing.shared_with(user_id):  # a shared runner with local Whisper allowed
+    for shared in sharing.shared_with(user_id, switched_off=False):  # a shared runner with local Whisper allowed
         if "local" in (shared.capabilities.get("transcribe_modes") or []):
             models = shared.capabilities.get("whisper_models") or []
             if models:

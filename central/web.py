@@ -644,8 +644,9 @@ def library_page(request: Request, oldal: int = 1, q: str = "", szures: str = ""
                     for sm in s.scalars(select(Summary).where(
                         Summary.id.in_([i.current_summary_id for i in found if i.current_summary_id])))}
         usable = sharing.usable_runners(s, viewer.id)
-        has_runner = len(usable)
-        silent = _silent_note(s, usable)
+        switched_off = sharing.switched_off_count(s, viewer.id)
+        has_runner = len(usable) + switched_off
+        silent = _silent_note(s, usable, switched_off)
         item_tags = personal.tags_by_item(s, [i.id for i in found])
         tag_list = personal.all_tags(s)
     return _render(request, "library.html", viewer, share_offers=sharing.open_offers(viewer.id), silent=silent,
@@ -657,14 +658,17 @@ def library_page(request: Request, oldal: int = 1, q: str = "", szures: str = ""
 SILENT_AFTER_S = 3600  # a runner not seen for this long while jobs wait: say so on the pages
 
 
-def _silent_note(s, runners: list[Any]) -> str:
+def _silent_note(s, runners: list[Any], switched_off: int = 0) -> str:
     """'The runner has not been seen for 3 hours; 4 jobs wait' (user session), or ''."""
-    if not runners or any(sharing.online(r) for r in runners):
+    if not runners and not switched_off or any(sharing.online(r) for r in runners):
         return ""
     waiting = s.scalar(select(func.count()).select_from(Job).where(
         Job.state == "queued", Job.kind.not_in(jobs.QUIET_KINDS))) or 0
     if not waiting:
         return ""
+    if not runners:  # every runner switched off (decision 18.14)
+        return (f"Minden futtatódat kikapcsoltad, ezért {waiting} munka vár. Kapcsolj be egyet a Futtatók "
+                "oldalon.")
     last = max((r for r in runners if r.last_seen_at), key=lambda r: r.last_seen_at, default=None)
     if last is not None and (utcnow() - last.last_seen_at).total_seconds() < SILENT_AFTER_S:
         return ""
@@ -1597,10 +1601,10 @@ def _submit_ctx(viewer: Viewer) -> dict[str, Any]:
 def _cloud_note(viewer: Viewer) -> str:
     """Cloud transcription through a shared runner: whose key, how much is left this month."""
     with db.user_session(viewer.id) as s:
-        own = s.scalars(select(Runner).where(Runner.revoked_at.is_(None))).all()
+        own = s.scalars(select(Runner).where(Runner.revoked_at.is_(None), Runner.paused_at.is_(None))).all()
     if any("cloud" in ((r.capabilities or {}).get("transcribe_modes") or []) for r in own):
         return ""
-    for r in sharing.shared_with(viewer.id):
+    for r in sharing.shared_with(viewer.id, switched_off=False):
         sh = r.share
         if sh["cloud_hours"]:
             left = max(0.0, sh["cloud_hours"] - sh["used_hours"])
@@ -1723,7 +1727,7 @@ def _jobs_context(request: Request, viewer: Viewer, oldal: int = 1, korabbi: int
         runners = _runners(s, viewer.id)
     online = [r for r in runners if sharing.online(r)]
     with db.user_session(viewer.id) as s:
-        silent = _silent_note(s, runners)
+        silent = _silent_note(s, runners, sharing.switched_off_count(s, viewer.id))
     # queued jobs that none of the runners has declared it can do (e.g. local Whisper without a GPU)
     unfit = {j.id for j in active if j.state == "queued" and runners
              and not any(jobs.fits(j, r.capabilities or {}, r.id) for r in runners)}
@@ -1867,6 +1871,28 @@ async def pairing_state(kod: str = "", viewer: Viewer = Depends(current_viewer))
     if not done:
         return Response(status_code=204)
     return Response(status_code=200, headers={"HX-Redirect": "/futtatok"})
+
+
+@app.post("/futtatok/{runner_id}/kikapcsolas")
+async def switch_runner(runner_id: int, request: Request, viewer: Viewer = Depends(authed_post)):
+    """Switch an own runner off or on (decision 18.14): off = no new jobs, nothing removed."""
+    form = await request.form()
+    try:
+        await run_in_threadpool(sharing.set_switched_off, viewer.id, runner_id, None, form.get("ki") == "1")
+    except sharing.ShareError:
+        pass
+    return _redirect("/futtatok")
+
+
+@app.post("/futtatok/megosztas/{share_id}/kikapcsolas")
+async def switch_shared_runner(share_id: int, request: Request, viewer: Viewer = Depends(authed_post)):
+    """Switch a runner shared with the viewer off or on, for the viewer only."""
+    form = await request.form()
+    try:
+        await run_in_threadpool(sharing.set_switched_off, viewer.id, None, share_id, form.get("ki") == "1")
+    except sharing.ShareError:
+        pass
+    return _redirect("/futtatok")
 
 
 @app.post("/futtatok/{runner_id}/visszavonas")

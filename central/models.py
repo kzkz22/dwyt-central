@@ -92,6 +92,7 @@ class Runner(Base):
     protocol: Mapped[int | None] = mapped_column(Integer)
     capabilities: Mapped[dict[str, Any]] = mapped_column(default=dict)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    paused_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # switched off by its owner
 
 
 class PairRequest(Base):
@@ -474,6 +475,7 @@ class RunnerShare(Base):
     created_at: Mapped[datetime] = _now()
     updated_at: Mapped[datetime] = _now()
     accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    paused_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # switched off by the user
 
 
 class ShareUsage(Base):

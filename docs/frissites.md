@@ -93,6 +93,11 @@ Egyszeri lépések, a fenti frissítés **előtt**:
 3. A téma (világos / sötét) és a becsukott menü böngészőnként tárolódik; először a rendszer témáját követi.
 4. Ha az Apache-on saját `Content-Security-Policy` fejlécet állítottál be, abban is maradjon `default-src 'self'` (a betűtípus és az ikonok a központról jönnek, külső címről semmi).
 
+## Frissítés a 0.15-re (futtató kikapcsolása)
+
+1. A fenti frissítés; a migráció (0015) magától lefut.
+2. A Futtatók oldalon minden futtató mellett **Kikapcsolás** / **Bekapcsolás** gomb van: a kikapcsolt futtató nem kap tőled új munkát, de párosítva marad (a megosztott is). A futtatón nincs teendő.
+
 ## Frissítés a 0.14.3-ra (a Futtatók oldal magától frissül párosítás után)
 
 Csak a felület: a Jóváhagyás után a Futtatók oldal pár másodpercenként megnézi, megkapta-e már a futtató a tokenjét, és ha igen, magától újratölt; így az új futtató kézi frissítés nélkül megjelenik. A fenti frissítés elég.

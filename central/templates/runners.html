@@ -170,13 +170,15 @@
 {% if prefill_code or (not runners and not shared) %}{{ pairing() }}{% endif %}
 
 <h2>Párosított futtatók</h2>
+{% if runners or shared %}<p class="muted">A munkát az a bekapcsolt futtató kapja, amelyik először kér, és tudja a feladatot. A <strong>Kikapcsolás</strong> után a futtató nem kap tőled új munkát, de párosítva marad (a megosztott is); amit már elkezdett, befejezi.</p>{% endif %}
 {% if not runners and shared %}<p class="muted">Még nincs saját futtatód. Amíg nincs, a megosztott futtató végzi a munkáidat; ha lesz sajátod, az kap elsőbbséget.</p>{% endif %}
 {% for r in runners %}
 {% set caps = r.capabilities or {} %}
-<section class="card runner{{ ' inactive' if r.revoked_at }}">
+<section class="card runner{{ ' inactive' if r.revoked_at or r.paused_at }}">
   <div class="bar"><span class="runner-name"><strong>{{ r.name }}</strong>
-    {% if r.revoked_at %}<span class="badge">visszavonva</span>{% elif r.id in online %}<span class="badge own">elérhető</span>{% else %}<span class="badge warn">nem jelentkezik</span>{% endif %}</span>
-    {% if not r.revoked_at %}<form method="post" action="/futtatok/{{ r.id }}/visszavonas" class="inline confirm" data-confirm="Visszavonod ezt a futtatót? Utána újra párosítani kell."><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="danger small">Visszavonás</button></form>{% endif %}</div>
+    {% if r.revoked_at %}<span class="badge">visszavonva</span>{% elif r.paused_at %}<span class="badge">kikapcsolva</span>{% elif r.id in online %}<span class="badge own">elérhető</span>{% else %}<span class="badge warn">nem jelentkezik</span>{% endif %}</span>
+    <span class="runner-actions">{% if not r.revoked_at %}<form method="post" action="/futtatok/{{ r.id }}/kikapcsolas" class="inline" title="{{ 'Újra kaphat munkát' if r.paused_at else 'Nem kap új munkát, de párosítva marad; amit már elkezdett, befejezi' }}"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="ki" value="{{ '0' if r.paused_at else '1' }}"><button class="{{ '' if r.paused_at else 'secondary ' }}small">{{ 'Bekapcsolás' if r.paused_at else 'Kikapcsolás' }}</button></form>{% endif %}
+    {% if not r.revoked_at %}<form method="post" action="/futtatok/{{ r.id }}/visszavonas" class="inline confirm" data-confirm="Visszavonod ezt a futtatót? Utána újra párosítani kell."><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="danger small">Visszavonás</button></form>{% endif %}</span></div>
   <div class="meta">
     {% if r.version %}dwyt-runner {{ r.version }}{% if r.protocol and r.protocol != protocol %} (régi protokoll){% endif %} · {% endif %}utoljára: {{ r.last_seen_at|local if r.last_seen_at else 'még soha' }}
     {% if caps.llm_server %} · LLM-szerver: {{ caps.llm_server }}{% endif %}
@@ -201,10 +203,11 @@
 {% if shared %}
 <h2>Megosztott futtatók</h2>
 {% for r in shared %}
-<section class="card runner">
+<section class="card runner{{ ' inactive' if r.paused_at }}">
   <div class="bar"><span class="runner-name"><strong>{{ r.name }}</strong>
-    {% if r.id in online %}<span class="badge own">elérhető</span>{% else %}<span class="badge warn">nem jelentkezik</span>{% endif %}</span>
-    <form method="post" action="/futtatok/megosztas/{{ r.share.id }}/torles" class="inline confirm" data-confirm="Leválasztod ezt a futtatót? Utána csak a saját futtatód dolgozik neked."><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="secondary small">Leválasztás</button></form></div>
+    {% if r.paused_at %}<span class="badge">kikapcsolva</span>{% elif r.id in online %}<span class="badge own">elérhető</span>{% else %}<span class="badge warn">nem jelentkezik</span>{% endif %}</span>
+    <span class="runner-actions"><form method="post" action="/futtatok/megosztas/{{ r.share.id }}/kikapcsolas" class="inline" title="{{ 'Újra kaphat munkát tőled' if r.paused_at else 'Nem kap tőled új munkát, de a megosztás megmarad' }}"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="ki" value="{{ '0' if r.paused_at else '1' }}"><button class="{{ '' if r.paused_at else 'secondary ' }}small">{{ 'Bekapcsolás' if r.paused_at else 'Kikapcsolás' }}</button></form>
+    <form method="post" action="/futtatok/megosztas/{{ r.share.id }}/torles" class="inline confirm" data-confirm="Leválasztod ezt a futtatót? Utána csak a saját futtatód dolgozik neked."><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="secondary small">Leválasztás</button></form></span></div>
   <div class="meta">{{ r.owner_name }} futtatója{% if r.version %} · dwyt-runner {{ r.version }}{% endif %} · utoljára: {{ r.last_seen_at|local if r.last_seen_at else 'még soha' }}</div>
   <h3 class="runner-h">{{ icon("file", 16) }} Mit használhatsz</h3>
   {{ shared_caps(r) }}
