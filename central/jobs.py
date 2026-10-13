@@ -53,8 +53,9 @@ def recipe_hash(data: dict[str, Any]) -> str:
 # ---- enqueueing (user session) ------------------------------------------------------------
 
 def enqueue_transcription(s: DbSession, user_id: int, item: Item, source: Source, options: dict[str, Any],
-                          summarize: bool, file: dict[str, Any] | None = None) -> Job:
-    """file: for own recordings {"kind": "upload"|"local", "sha256", "name", "size", ...}."""
+                          summarize: bool, file: dict[str, Any] | None = None, captions_policy: Any = None) -> Job:
+    """file: for own recordings {"kind": "upload"|"local", "sha256", "name", "size", ...}.
+    captions_policy (captionpolicy.Policy): which captions a captions job may keep (18.9)."""
     if file is not None:
         src = dict(file)
         title = file.get("name")
@@ -63,6 +64,8 @@ def enqueue_transcription(s: DbSession, user_id: int, item: Item, source: Source
                "video_id": source.key.split(":", 1)[1] if source.kind == "youtube" else None}
         title = (source.meta or {}).get("title") or source.url
     payload = {"source": src, "options": options, "summarize": summarize}
+    if captions_policy is not None and options.get("mode") == "captions":
+        payload["captions_policy"] = captions_policy.as_payload()
     job = Job(user_id=user_id, item_id=item.id, kind="transcribe", state="queued", stage="queued",
               title=title, payload=payload, progress={})
     s.add(job)
@@ -441,6 +444,13 @@ def store_result(s: DbSession, runner: Runner, job_id: int, result: dict[str, An
     if job.state != "running" or job.runner_id != runner.id:
         raise ProtocolError(409, "the job is not running on this runner")
     if job.kind == "transcribe":
+        if not _captions_accepted(job, result):
+            from . import captionpolicy
+            tr = result.get("transcript") or {}
+            subscription = (job.payload or {}).get("origin") == "subscription"
+            fail(s, runner, job_id, captionpolicy.rejected_message(tr.get("language"), subscription), "next_step",
+                 get_settings())
+            return {"rejected": "machine captions not accepted by the user's rule"}
         store_transcription(s, runner, job, result)
     elif job.kind == "ask":
         from . import chat
@@ -452,6 +462,16 @@ def store_result(s: DbSession, runner: Runner, job_id: int, result: dict[str, An
     from . import sharing
     sharing.record_usage(s, runner, job, result)
     return job.progress["result"]
+
+
+def _captions_accepted(job: Job, result: dict[str, Any]) -> bool:
+    """A captions result the user's caption rule (18.9) does not accept is not stored."""
+    from . import captionpolicy
+    tr = result.get("transcript") or {}
+    if tr.get("mode") != "captions":
+        return True
+    policy = captionpolicy.Policy.from_payload((job.payload or {}).get("captions_policy"))
+    return captionpolicy.accepts(policy, tr.get("caption_kind"), tr.get("language"))
 
 
 def touch_runner(s: DbSession, runner: Runner) -> None:

@@ -30,9 +30,9 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from starlette.concurrency import run_in_threadpool
 
-from . import (accounts, chat, db, export, indexing, items, jobs, library, mailer, mcp_server, modelinfo, notify,
-               ownfiles, personal, protocol, ratelimit, render, search, secretbox, security, sources, subscriptions,
-               sharing, youtube)
+from . import (accounts, captionpolicy, chat, db, export, indexing, items, jobs, library, mailer, mcp_server,
+               modelinfo, notify, ownfiles, personal, protocol, ratelimit, render, search, secretbox, security,
+               sources, subscriptions, sharing, youtube)
 from . import submit as submit_mod
 from .submit import CLOUD_MODELS, LOCAL_MODELS, MODES, parse_options
 from .config import Settings, get_settings
@@ -642,13 +642,39 @@ def library_page(request: Request, oldal: int = 1, q: str = "", szures: str = ""
         previews = {sm.id: render.plain_preview(sm.text, LIBRARY_PREVIEW_CHARS)
                     for sm in s.scalars(select(Summary).where(
                         Summary.id.in_([i.current_summary_id for i in found if i.current_summary_id])))}
-        has_runner = len(sharing.usable_runners(s, viewer.id))
+        usable = sharing.usable_runners(s, viewer.id)
+        has_runner = len(usable)
+        silent = _silent_note(s, usable)
         item_tags = personal.tags_by_item(s, [i.id for i in found])
         tag_list = personal.all_tags(s)
-    return _render(request, "library.html", viewer, share_offers=sharing.open_offers(viewer.id),
+    return _render(request, "library.html", viewer, share_offers=sharing.open_offers(viewer.id), silent=silent,
                    items=found, active=active, paging=pager, total=total,
                    has_runner=has_runner, q=q, szures=szures, filters=LIBRARY_FILTERS, mains=mains,
                    previews=previews, cimke=cimke, item_tags=item_tags, tag_list=tag_list)
+
+
+SILENT_AFTER_S = 3600  # a runner not seen for this long while jobs wait: say so on the pages
+
+
+def _silent_note(s, runners: list[Any]) -> str:
+    """'The runner has not been seen for 3 hours; 4 jobs wait' (user session), or ''."""
+    if not runners or any(sharing.online(r) for r in runners):
+        return ""
+    waiting = s.scalar(select(func.count()).select_from(Job).where(
+        Job.state == "queued", Job.kind.not_in(jobs.QUIET_KINDS))) or 0
+    if not waiting:
+        return ""
+    last = max((r for r in runners if r.last_seen_at), key=lambda r: r.last_seen_at, default=None)
+    if last is not None and (utcnow() - last.last_seen_at).total_seconds() < SILENT_AFTER_S:
+        return ""
+    if last is None:
+        since = "még soha nem jelentkezett"
+    else:
+        hours = int((utcnow() - last.last_seen_at).total_seconds() // 3600)
+        since = (f"{hours} órája nem jelentkezett" if hours < 48 else f"{hours // 24} napja nem jelentkezett")
+    name = f"A futtatód ({last.name})" if last is not None else "A futtatód"
+    return (f"{name} {since}, és {waiting} munka vár rá. A munka csak akkor halad, ha a futtató gépe be van "
+            "kapcsolva, és fut rajta a futtató.")
 
 
 def _runners(s, user_id: int) -> list[Any]:
@@ -949,7 +975,8 @@ async def rerun_own(request: Request, item_id: int, viewer: Viewer = Depends(aut
                 return "Az átírás már folyamatban van."
             t = s.get(Transcript, item.main_transcript_id)
             job = jobs.enqueue_transcription(s, viewer.id, item, item.source, dict(t.options or {}),
-                                             summarize=item.current_summary_id is not None)
+                                             summarize=item.current_summary_id is not None,
+                                             captions_policy=captionpolicy.for_user(viewer.id))
             job.payload = {**job.payload, "make_main": True}
             return None
     error = await run_in_threadpool(enqueue)
@@ -1027,6 +1054,7 @@ def _channels_context(viewer: Viewer, message: str | None = None, error: bool = 
         new_counts = dict(s.execute(select(InboxEntry.channel_id, func.count()).where(InboxEntry.state == "new")
                                     .group_by(InboxEntry.channel_id)).all())
     return {"subs": subs, "new_counts": new_counts, "rules": subscriptions.RULES, "sources": subscriptions.SOURCES,
+            "caption_policies": captionpolicy.POLICIES,
             "notify_options": subscriptions.NOTIFY, "link": subscriptions.link_of(viewer.id),
             "google_ready": bool(settings.google_client_id and settings.google_client_secret),
             "token_ready": secretbox.available(), "message": message, "message_error": error,
@@ -1124,7 +1152,8 @@ async def channels_poll_now(request: Request, viewer: Viewer = Depends(authed_po
 async def channel_settings(sub_id: int, request: Request, viewer: Viewer = Depends(authed_post)):
     form = await request.form()
     ok = await run_in_threadpool(subscriptions.update_subscription, viewer.id, sub_id, str(form.get("rule") or ""),
-                                 form.get("allow_cloud") == "on", str(form.get("notify") or "digest"))
+                                 form.get("allow_cloud") == "on", str(form.get("notify") or "digest"),
+                                 str(form.get("captions") or "") or None)
     if not ok:
         return _channels_message(request, viewer, "Nincs ilyen csatorna vagy beállítás.", True, 422)
     return _redirect(f"/csatornak#c{sub_id}")
@@ -1189,8 +1218,11 @@ def _settings_page(request: Request, viewer: Viewer, saved: bool = False, messag
                    error: bool = False, status: int = 200, new_token: str | None = None,
                    enrolling: dict[str, Any] | None = None):
     with db.system_session() as s:
-        translate_auto = s.get(User, viewer.id).translate_auto
+        user = s.get(User, viewer.id)
+        translate_auto, captions = user.translate_auto, (user.captions_policy, user.captions_auto_langs)
     return _render(request, "settings.html", viewer, status_code=status, translate_auto=translate_auto, saved=saved,
+                   captions_policy=captions[0], captions_auto_langs=captions[1],
+                   caption_policies=captionpolicy.POLICIES, caption_hints=captionpolicy.HINTS,
                    usage=_usage(viewer), message=message, message_error=error, note_cfg=notify.get(viewer.id),
                    channels=notify.CHANNELS, last_note=notify.last(viewer.id), mcp_tokens=mcp_server.tokens(viewer.id),
                    new_token=new_token, mcp_url=f"{get_settings().base_url}/mcp", enrolling=enrolling,
@@ -1207,10 +1239,16 @@ def settings_page(request: Request, viewer: Viewer = Depends(current_viewer)):
 async def save_settings(request: Request, viewer: Viewer = Depends(authed_post)):
     form = await request.form()
     value = form.get("translate_auto") == "on"
+    policy = str(form.get("captions_policy", ""))
+    langs = ", ".join(captionpolicy.parse_langs(str(form.get("captions_auto_langs", ""))[:200]))
 
     def save() -> None:
         with db.system_session() as s:  # the users table is the system's; only the viewer's own row
-            s.get(User, viewer.id).translate_auto = value
+            user = s.get(User, viewer.id)
+            user.translate_auto = value
+            if policy in captionpolicy.POLICIES:
+                user.captions_policy = policy
+            user.captions_auto_langs = langs
     await run_in_threadpool(save)
     return await run_in_threadpool(_settings_page, request, viewer, True)
 
@@ -1574,8 +1612,10 @@ def _cloud_note(viewer: Viewer) -> str:
 
 @app.get("/uj", response_class=HTMLResponse)
 def submit_page(request: Request, viewer: Viewer = Depends(current_viewer)):
-    return _render(request, "submit.html", viewer, form={"summarize": "on", "source": "url"}, errors=[],
-                   **_submit_ctx(viewer))
+    policy = captionpolicy.for_user(viewer.id)
+    form = {"summarize": "on", "source": "url", "mode": "local" if policy.mode == "never" else "captions",
+            "machine_captions": "on" if policy.mode == "any" else ""}
+    return _render(request, "submit.html", viewer, form=form, errors=[], **_submit_ctx(viewer))
 
 
 @app.put("/feltoltes")
@@ -1612,7 +1652,8 @@ async def submit(request: Request, viewer: Viewer = Depends(authed_post)):
         return _render(request, "submit.html", viewer, form=form, errors=errors, status_code=422,
                        **_submit_ctx(viewer))
     item_id = await run_in_threadpool(submit_mod.submit_url, viewer.id, ref, options,
-                                      form.get("summarize") == "on")
+                                      form.get("summarize") == "on",
+                                      "any" if form.get("machine_captions") == "on" else "manual")
     return _redirect(f"/elem/{item_id}")
 
 
@@ -1680,14 +1721,16 @@ def _jobs_context(request: Request, viewer: Viewer, oldal: int = 1, korabbi: int
                            .offset(recent_pager["offset"]).limit(recent_pager["size"])).all()
         runners = _runners(s, viewer.id)
     online = [r for r in runners if sharing.online(r)]
+    with db.user_session(viewer.id) as s:
+        silent = _silent_note(s, runners)
     # queued jobs that none of the runners has declared it can do (e.g. local Whisper without a GPU)
     unfit = {j.id for j in active if j.state == "queued" and runners
              and not any(jobs.fits(j, r.capabilities or {}, r.id) for r in runners)}
     with db.user_session(viewer.id) as s:
         counts = items.backfill_counts(s)
     return {"active": active, "recent": recent, "runner_count": len(runners), "online_count": len(online),
-            "unfit": unfit, "backfill": counts, "active_pager": active_pager, "recent_pager": recent_pager,
-            "poll_query": request.url.query}
+            "unfit": unfit, "backfill": counts, "silent": silent, "active_pager": active_pager,
+            "recent_pager": recent_pager, "poll_query": request.url.query}
 
 
 @app.get("/munkak", response_class=HTMLResponse)

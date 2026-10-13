@@ -49,6 +49,11 @@ the owner's and accepted shared users' jobs in turn, leaving a job to the user's
 `usable_runners` (own + shared, no token hash) feeds the pickers, chat, jobs page and subscriptions.
 Lists (decision 17.7): `web._pager` (users.page_size 15/25/50, migration 0013, POST /lapmeret with a local `vissza`),
 `_macros.pager`; the Inbox counter (`inbox_new`) is added by `_render` to every full page; favicon in static/.
+Round 7a (decision 18.9): `captionpolicy.py` — users.captions_policy (manual | any | never) + captions_auto_langs,
+subscriptions.captions_policy override (migration 0014), per-submission `machine_captions`; the rule travels in
+`job.payload.captions_policy` (not in options: recipes stay shared); `jobs.store_result` refuses a machine-captions
+result the rule does not accept (`fail(..., "next_step")`: subscription chain moves on, a submission fails with a
+message); `reuse.find` takes over captions only if accepted; `web._silent_note` (runner silent > 1 h, jobs waiting).
 Open: passkeys (not needed for now).
 Source of truth: `dwyt-docs` (`docs/terv.md`, `docs/protokoll.md`). Install: `docs/telepites.md`; tests need PostgreSQL
 (throw-away cluster from tests/pgcluster.py, or TEST_DATABASE_URL as superuser).

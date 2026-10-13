@@ -253,10 +253,10 @@ def claim(runner_client, token: str, caps: dict | None = None):
 
 
 def transcript_result(texts=("Jó napot kívánok.", "Ma a kertről beszélünk."), mode="captions", language="hu",
-                      title="Kerti videó", channel="Kertész") -> dict:
+                      title="Kerti videó", channel="Kertész", caption_kind="manual") -> dict:
     return {"video": {"title": title, "channel": channel, "duration_s": 120},
-            "transcript": {"mode": mode, "model": "youtube-auto" if mode == "captions" else "universal-2",
-                           "caption_kind": "auto" if mode == "captions" else None, "language": language,
+            "transcript": {"mode": mode, "model": f"youtube-{caption_kind}" if mode == "captions" else "universal-2",
+                           "caption_kind": caption_kind if mode == "captions" else None, "language": language,
                            "diarized": mode != "captions",
                            "speakers": [] if mode == "captions" else [{"label": "Szereplő 1", "share": 1.0}],
                            "warnings": [], "segments": [

@@ -1,6 +1,8 @@
 {% from "_macros.html" import pager %}
 {% if runner_count == 0 %}
 <p class="warn-box">Nincs párosított futtatód, ezért a munkák nem indulnak el. <a href="/futtatok">Futtató párosítása</a></p>
+{% elif silent %}
+<p class="warn-box">{{ silent }} <a href="/futtatok">Futtatók</a></p>
 {% elif online_count == 0 and active %}
 <p class="warn-box">Egyik futtatód sem jelentkezett az utóbbi időben; a munkák várnak, amíg el nem indul.</p>
 {% endif %}

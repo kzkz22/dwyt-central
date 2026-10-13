@@ -26,7 +26,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session as DbSession
 from sqlalchemy.orm import object_session
 
-from . import db, indexing, jobs, reuse, secretbox, youtube
+from . import captionpolicy, db, indexing, jobs, reuse, secretbox, youtube
 from .config import Settings, get_settings
 from .db import utcnow
 from .models import (ACTIVE, Channel, ChannelVideo, InboxEntry, Item, Job, Runner, Source, Subscription,
@@ -84,7 +84,8 @@ def remove_subscription(user_id: int, sub_id: int) -> None:
         s.delete(sub)
 
 
-def update_subscription(user_id: int, sub_id: int, rule: str, allow_cloud: bool, notify: str) -> bool:
+def update_subscription(user_id: int, sub_id: int, rule: str, allow_cloud: bool, notify: str,
+                        captions: str | None = None) -> bool:
     if rule not in RULES or notify not in NOTIFY:
         return False
     with db.user_session(user_id) as s:
@@ -94,6 +95,7 @@ def update_subscription(user_id: int, sub_id: int, rule: str, allow_cloud: bool,
         if sub.rule == "never" and rule != "never":
             sub.baseline_at = utcnow()  # not followed meanwhile: what came out since is not "new"
         sub.rule, sub.allow_cloud, sub.notify = rule, allow_cloud, notify
+        sub.captions_policy = captions if captions in captionpolicy.POLICIES else None
     return True
 
 
@@ -343,16 +345,22 @@ def request(s: DbSession, settings: Settings, entry: InboxEntry, sub: Subscripti
     s.add(item)
     s.flush()
     indexing.enqueue(s, item)
-    options = {"mode": "captions", "language": None, "diarize": False}
-    found = reuse.find(source, options)
+    policy = captionpolicy.for_user(user_id, sub)
+    chain = ["local"] + (["cloud"] if sub is not None and sub.allow_cloud else [])
+    if policy.mode == "never":  # always a real transcription (18.9): the chain starts at its next step
+        first = chain.pop(0)
+        options = {"mode": first, "language": None, "diarize": True,
+                   "model": _whisper_model(s, user_id) if first == "local" else "auto"}
+    else:
+        options = {"mode": "captions", "language": None, "diarize": False}
+    found = reuse.find(source, options, policy)
     entry.item_id, entry.updated_at = item.id, utcnow()
     if found is not None:
         reuse.attach(s, user_id, item, found, True, reuse.translate_auto(user_id))
         entry.state = "done"
         return
-    job = jobs.enqueue_transcription(s, user_id, item, source, options, summarize=True)
+    job = jobs.enqueue_transcription(s, user_id, item, source, options, summarize=True, captions_policy=policy)
     job.title = entry.title or job.title
-    chain = ["local"] + (["cloud"] if sub is not None and sub.allow_cloud else [])
     job.payload = {**job.payload, "origin": "subscription", "inbox_id": entry.id, "chain": chain,
                    "step_since": utcnow().isoformat()}
     entry.state, entry.job_id = "queued", job.id

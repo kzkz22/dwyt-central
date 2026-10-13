@@ -18,6 +18,17 @@
   <input type="hidden" name="csrf_token" value="{{ csrf }}">
   <label class="choice"><input type="checkbox" name="translate_auto" {% if translate_auto %}checked{% endif %}> Nem magyar átirat magyar fordítása magától</label>
   <p class="muted">Ha ki van kapcsolva, a fordítás csak az elem oldalán, kérésre indul. A fordítást a futtatód végzi a saját LLM-jével; felhős modellnél ez költséggel jár.</p>
+  <fieldset class="captions-policy" id="felirat">
+    <legend>Felirat használata</legend>
+    <p class="muted">Ha egy YouTube-videónak van felirata, abból gyorsan és ingyen készülhet átirat. A gépi (automatikus) felirat viszont gyakran pontatlan, főleg magyarul, és nincsenek benne beszélők.</p>
+    {% for key, label in caption_policies.items() %}
+    <label class="choice policy"><input type="radio" name="captions_policy" value="{{ key }}" {% if captions_policy == key %}checked{% endif %}>
+      <span><strong>{{ label }}</strong>{% if key == 'manual' %} <span class="badge own">ajánlott</span>{% endif %}<br><span class="muted">{{ caption_hints[key] }}</span></span></label>
+    {% endfor %}
+    <label>Gépi felirat ezeken a nyelveken mégis jó (nem kötelező; például <code>en</code>, ha az angol gépi felirat neked elég)
+      <input name="captions_auto_langs" value="{{ captions_auto_langs }}" maxlength="100" placeholder="en, de"></label>
+    <p class="muted">Csatornánként a Csatornák oldalon, egy videónál az Új átirat oldalon eltérhetsz ettől. Felhős átírásnál minden átírás pénzbe kerül a saját AssemblyAI-fiókodon; a feliratos videóknál ez megspórolható. Ha nincs megfelelő felirat, és a géped vagy a felhő sem érhető el, a munka vár: magától nem vált a gépi feliratra.</p>
+  </fieldset>
   <p><button>Mentés</button></p>
 </form>
 

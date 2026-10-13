@@ -26,6 +26,8 @@
   {% for value, label in modes.items() %}
     <label class="choice"><input type="radio" name="mode" value="{{ value }}" {% if (form.mode or 'captions') == value %}checked{% endif %}> {{ label }}</label>
   {% endfor %}
+  <label class="choice machine-captions"><input type="checkbox" name="machine_captions" {% if form.machine_captions == 'on' %}checked{% endif %}> YouTube-feliratnál a gépi (automatikus) felirat is jó</label>
+  <p class="muted small-note">Kikapcsolva csak a videó készítőjének saját felirata kerül be; ha csak gépi felirat van, a munka ezt jelzi, és az elem oldalán kérhetsz átírást. Alapértéke a <a href="/beallitasok#felirat">Beállításokból</a> jön.</p>
   {% if cloud_note %}<p class="model-hint muted">{{ cloud_note }}</p>{% endif %}
   </fieldset>
   <div class="grid">

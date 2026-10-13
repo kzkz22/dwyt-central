@@ -93,6 +93,13 @@ Egyszeri lépések, a fenti frissítés **előtt**:
 3. A téma (világos / sötét) és a becsukott menü böngészőnként tárolódik; először a rendszer témáját követi.
 4. Ha az Apache-on saját `Content-Security-Policy` fejlécet állítottál be, abban is maradjon `default-src 'self'` (a betűtípus és az ikonok a központról jönnek, külső címről semmi).
 
+## Frissítés a 0.14-re (felirat használata, hallgató futtató)
+
+1. A fenti frissítés; a migráció (0014) magától lefut.
+2. **Felirat használata** (Beállítások): alapból csak a videó készítőjének saját felirata kerül be; ha csak gépi (automatikus) felirat van, a feliratkozott csatornák videóinál a lánc a helyi Whisperrel (majd, ha engedélyezted, a felhővel) folytatódik, egy kézzel beküldött videónál pedig a munka ezt jelzi, és az elem oldalán kérhetsz átírást. Aki eddig a gépi feliratot is elfogadta, a Beállításokban válassza a „Gépi felirat is jó” lehetőséget, vagy adja meg a nyelveket, ahol a gépi felirat elég (például `en`). Csatornánként a Csatornák oldalon, videónként az Új átirat oldalon eltérhetsz.
+3. Ha a futtatód egy óránál régebben nem jelentkezett, és munka vár rá, a Könyvtár és a Munkák oldal szól.
+4. A futtatón nincs teendő.
+
 ## Frissítés a 0.13-ra (lapozás, Postaláda-számláló, ikon)
 
 1. A fenti frissítés; a migráció (0013) magától lefut (a felhasználó lapmérete).

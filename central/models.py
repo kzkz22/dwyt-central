@@ -35,6 +35,8 @@ class User(Base):
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     translate_auto: Mapped[bool] = mapped_column(Boolean, default=True)
     page_size: Mapped[int] = mapped_column(Integer, default=25)
+    captions_policy: Mapped[str] = mapped_column(Text, default="manual")  # manual | any | never (18.9)
+    captions_auto_langs: Mapped[str] = mapped_column(Text, default="")  # "en, de": machine captions fine there
     quota_storage_mb: Mapped[int | None] = mapped_column(Integer)
     quota_upload_mb: Mapped[int | None] = mapped_column(Integer)
     totp_after_google: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -370,6 +372,7 @@ class Subscription(Base):
     rule: Mapped[str] = mapped_column(Text, default="ask")  # always | ask | never
     allow_cloud: Mapped[bool] = mapped_column(Boolean, default=False)
     notify: Mapped[str] = mapped_column(Text, default="digest")  # digest | instant | none
+    captions_policy: Mapped[str | None] = mapped_column(Text)  # None: the user's rule
     baseline_at: Mapped[datetime] = _now()
     created_at: Mapped[datetime] = _now()
     channel: Mapped[Channel] = relationship(lazy="selectin")

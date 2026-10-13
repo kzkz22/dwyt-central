@@ -11,11 +11,12 @@ links are then written in the user's own session (row-level security).
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
-from . import db, indexing, jobs
+from . import captionpolicy, db, indexing, jobs
 from .models import (Item, ItemSummary, ItemTranscript, ItemTranslation, Source, Summary, Transcript, Translation,
                      User)
 
@@ -28,8 +29,9 @@ class Found:
     translation_id: int | None
 
 
-def find(source: Source, options: dict) -> Found | None:
-    """A shareable transcript (and its newest shareable summary and translation) for this recipe."""
+def find(source: Source, options: dict, captions_policy: Any = None) -> Found | None:
+    """A shareable transcript (and its newest shareable summary and translation) for this recipe.
+    captions_policy: a captions transcript is taken over only if the user's caption rule accepts it."""
     if source.kind == "upload":
         return None
     recipe = jobs.recipe_hash({"source": source.key, "options": options})
@@ -37,6 +39,8 @@ def find(source: Source, options: dict) -> Found | None:
         t = s.scalar(select(Transcript).where(Transcript.recipe_hash == recipe, Transcript.shareable.is_(True),
                                               Transcript.private.is_(False)).order_by(Transcript.id.desc()))
         if t is None:
+            return None
+        if t.mode == "captions" and not captionpolicy.accepts(captions_policy, t.caption_kind, t.language):
             return None
         summary_id = s.scalar(select(Summary.id).where(Summary.transcript_id == t.id, Summary.shareable.is_(True),
                                                        Summary.private.is_(False))

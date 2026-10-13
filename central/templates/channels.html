@@ -54,7 +54,7 @@
   <div class="bar"><h2>Követett csatornák ({{ subs|length }})</h2></div>
   <details class="help">
     <summary>{{ icon("info", 15) }}Hogyan működnek a szabályok?</summary>
-    <p class="muted"><strong>mindig</strong> = minden új videóhoz magától készül átirat és összefoglaló; <strong>kérdezzen</strong> = a postaládába kerül; <strong>soha</strong> = nem figyeli. Átírás: YouTube-felirat → ha nincs, helyi Whisper (megvárja a GPU-gépet) → felhő csak bepipálva. A hírcsatornákat {{ poll_min }} percenként nézi meg. A Shorts videók külön fülre kerülnek.</p>
+    <p class="muted"><strong>mindig</strong> = minden új videóhoz magától készül átirat és összefoglaló; <strong>kérdezzen</strong> = a postaládába kerül; <strong>soha</strong> = nem figyeli. Átírás: YouTube-felirat (a <a href="/beallitasok#felirat">Felirat használata</a> beállítás szerint; csatornánként eltérhet) → ha nincs megfelelő, helyi Whisper (megvárja a GPU-gépet) → felhő csak bepipálva. A hírcsatornákat {{ poll_min }} percenként nézi meg. A Shorts videók külön fülre kerülnek.</p>
   </details>
   {% if not subs %}<p class="card">Még nem követsz csatornát.</p>{% else %}
   <ul class="items channels-list">
@@ -72,6 +72,7 @@
         <input type="hidden" name="csrf_token" value="{{ csrf }}">
         <select name="rule" aria-label="Szabály: {{ sub.channel.title or sub.channel_id }}">{% for key, label in rules.items() %}<option value="{{ key }}" {% if sub.rule == key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
         <select name="notify" aria-label="Értesítés: {{ sub.channel.title or sub.channel_id }}">{% for key, label in notify_options.items() %}<option value="{{ key }}" {% if sub.notify == key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+        <select name="captions" aria-label="Felirat: {{ sub.channel.title or sub.channel_id }}" title="Felirat használata ennél a csatornánál"><option value="">Felirat: a beállításod szerint</option>{% for key, label in caption_policies.items() %}<option value="{{ key }}" {% if sub.captions_policy == key %}selected{% endif %}>Felirat: {{ label|lower }}</option>{% endfor %}</select>
         <label class="choice"><input type="checkbox" name="allow_cloud" {% if sub.allow_cloud %}checked{% endif %}> felhő is</label>
         <button class="secondary small">Mentés</button>
       </form>

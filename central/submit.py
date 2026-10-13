@@ -7,7 +7,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
-from . import db, indexing, items, jobs, ownfiles, reuse, sources
+from . import captionpolicy, db, indexing, items, jobs, ownfiles, reuse, sources
 from .config import get_settings
 from .models import ACTIVE, Item, ItemSummary, ItemTranscript, ItemTranslation, Job, Source
 
@@ -89,13 +89,16 @@ def source_for(ref: sources.SourceRef) -> int:
         return s.scalar(select(Source.id).where(Source.key == ref.key))
 
 
-def submit_url(user_id: int, ref: sources.SourceRef, options: dict[str, Any], summarize: bool) -> int:
-    """The item of this source (new or existing) with a reused result or a queued transcription."""
+def submit_url(user_id: int, ref: sources.SourceRef, options: dict[str, Any], summarize: bool,
+               captions: str | None = None) -> int:
+    """The item of this source (new or existing) with a reused result or a queued transcription.
+    captions: this submission's caption rule (manual | any), else the user's (18.9)."""
     source_id = source_for(ref)
     with db.system_session() as s:
         source = s.get(Source, source_id)
         s.expunge(source)
-    found = reuse.find(source, options)
+    policy = captionpolicy.for_user(user_id, override=captions)
+    found = reuse.find(source, options, policy)
     auto_translate = reuse.translate_auto(user_id)
     with db.user_session(user_id) as s:
         item = s.scalar(select(Item).where(Item.source_id == source_id))
@@ -107,7 +110,8 @@ def submit_url(user_id: int, ref: sources.SourceRef, options: dict[str, Any], su
         if found is not None:
             reuse.attach(s, user_id, item, found, summarize, auto_translate)
         else:
-            jobs.enqueue_transcription(s, user_id, item, s.get(Source, source_id), options, summarize)
+            jobs.enqueue_transcription(s, user_id, item, s.get(Source, source_id), options, summarize,
+                                       captions_policy=policy)
         return item.id
 
 
@@ -137,7 +141,8 @@ def retranscribe(user_id: int, item_id: int, options: dict[str, Any], make_main:
         ownfiles.check_storage(get_settings(), user_id)
     except ownfiles.QuotaError as exc:
         return str(exc)
-    found = reuse.find(item_source, options)
+    policy = captionpolicy.for_user(user_id)
+    found = reuse.find(item_source, options, policy)
     with db.user_session(user_id) as s:
         item = s.get(Item, item_id)
         busy = s.scalar(select(Job.id).where(Job.item_id == item.id, Job.kind == "transcribe",
@@ -166,7 +171,7 @@ def retranscribe(user_id: int, item_id: int, options: dict[str, Any], make_main:
             if options.get("mode") == "captions":
                 return "Saját felvételhez YouTube-felirat nem kérhető."
         job = jobs.enqueue_transcription(s, user_id, item, s.get(Source, item_source.id), options, summarize,
-                                         file=file)
+                                         file=file, captions_policy=policy)
         if make_main:
             job.payload = {**job.payload, "make_main": True}
         return None

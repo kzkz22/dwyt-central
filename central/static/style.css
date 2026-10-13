@@ -573,3 +573,12 @@ select { max-width: 100%; }
   background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); }
 .sb-count + .sb-chev { margin-left: 6px; }
 .sb-collapsed .sb-count { position: absolute; top: 2px; right: 2px; min-width: 16px; height: 16px; padding: 0 4px; font-size: .62rem; }
+
+/* caption rule (decision 18.9) */
+.captions-policy { border: 0; padding: 0; margin: 14px 0 0; }
+.captions-policy legend { font-weight: 600; padding: 0; margin-bottom: 4px; font-size: 1rem; color: hsl(var(--foreground));
+  text-transform: none; letter-spacing: 0; }
+.captions-policy label.policy { align-items: flex-start; display: flex; margin: 6px 0; }
+.captions-policy label.policy input { margin-top: 3px; }
+.small-note { font-size: .8rem; margin: 0 0 6px; }
+.machine-captions { margin-top: 10px; padding-top: 10px; border-top: 1px dashed hsl(var(--border)); width: 100%; }
