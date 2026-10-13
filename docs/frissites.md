@@ -93,6 +93,10 @@ Egyszeri lépések, a fenti frissítés **előtt**:
 3. A téma (világos / sötét) és a becsukott menü böngészőnként tárolódik; először a rendszer témáját követi.
 4. Ha az Apache-on saját `Content-Security-Policy` fejlécet állítottál be, abban is maradjon `default-src 'self'` (a betűtípus és az ikonok a központról jönnek, külső címről semmi).
 
+## Frissítés a 0.14.1-re (új munkalépés felirata)
+
+Csak a felület: a Munkák oldal „Modell letöltése (első használat)” felirattal mutatja, amikor a futtató a beépített helyi Whisperhez először tölti le a modelleket (dwyt-runner 0.8). A fenti frissítés elég.
+
 ## Frissítés a 0.14-re (felirat használata, hallgató futtató)
 
 1. A fenti frissítés; a migráció (0014) magától lefut.

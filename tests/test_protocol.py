@@ -26,6 +26,9 @@ def test_full_round_trip_with_summary(alice, anon):
                    headers=runner_headers(token)).json()
     assert hb["cancel"] is False
     assert "Felirat letöltése" in alice.get("/munkak/lista").text
+    anon.post(f"/runner/v1/jobs/{job['job_id']}/heartbeat", json={"stage": "download-model"},
+              headers=runner_headers(token))
+    assert "Modell letöltése (első használat)" in alice.get("/munkak/lista").text  # built-in Whisper, first use
     r = anon.put(f"/runner/v1/jobs/{job['job_id']}/result", json=transcript_result(), headers=runner_headers(token))
     assert r.status_code == 200, r.text
     # delivered twice: acknowledged, not stored twice

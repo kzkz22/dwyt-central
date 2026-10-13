@@ -28,6 +28,7 @@ STAGE_LABELS = {
     "summarize": "Összefoglaló írása", "write": "Mentés", "starting": "Indul",
     "waiting-for-gpu": "Vár a GPU-ra", "load-audio": "Hang betöltése", "align": "Igazítás",
     "diarize": "Beszélők szétválasztása", "translate": "Fordítás", "ask": "Válasz írása",
+    "download-model": "Modell letöltése (első használat)",
 }
 KIND_LABELS = {"transcribe": "Átírás", "summarize": "Összefoglaló", "translate": "Fordítás", "ask": "Kérdés"}
 QUIET_KINDS = ("ask",)  # answered in the conversation: not on the Jobs page, no failure notification
