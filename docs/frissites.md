@@ -93,6 +93,10 @@ Egyszeri lépések, a fenti frissítés **előtt**:
 3. A téma (világos / sötét) és a becsukott menü böngészőnként tárolódik; először a rendszer témáját követi.
 4. Ha az Apache-on saját `Content-Security-Policy` fejlécet állítottál be, abban is maradjon `default-src 'self'` (a betűtípus és az ikonok a központról jönnek, külső címről semmi).
 
+## Frissítés a 0.14.2-re (párosítás a futtató ablakából)
+
+Csak a felület: a Futtatók oldal `?kod=…&nev=…` címmel kitöltött párosítókóddal nyílik meg. Ezt a futtató telepítő ablaka nyitja meg (dwyt-runner 0.9). Jóváhagyni továbbra is a gombbal kell; az oldal kéri, hogy a kódot vesd össze a futtató ablakában látható kóddal. A fenti frissítés elég.
+
 ## Frissítés a 0.14.1-re (új munkalépés felirata)
 
 Csak a felület: a Munkák oldal „Modell letöltése (első használat)” felirattal mutatja, amikor a futtató a beépített helyi Whisperhez először tölti le a modelleket (dwyt-runner 0.8). A fenti frissítés elég.

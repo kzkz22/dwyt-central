@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 import secrets
 import time
 from contextlib import asynccontextmanager
@@ -1828,9 +1829,17 @@ def _runner_models(r: Runner) -> list[dict[str, Any]]:
     return rows
 
 
+PAIR_CODE_RE = re.compile(r"[A-Z0-9-]{3,12}")
+
+
 @app.get("/futtatok", response_class=HTMLResponse)
-def runners_page(request: Request, viewer: Viewer = Depends(current_viewer)):
-    return _render(request, "runners.html", viewer, **_runners_context(viewer))
+def runners_page(request: Request, kod: str = "", nev: str = "", viewer: Viewer = Depends(current_viewer)):
+    """`?kod=…&nev=…`: the runner's setup window opens this with its pairing code filled in (like an OAuth
+    device flow's complete URI). Nothing is approved without the button, and the page asks to compare the
+    code with the one in the runner's window, so a link from someone else cannot pair their runner unseen."""
+    code = kod.strip().upper()
+    prefill = {"prefill_code": code if PAIR_CODE_RE.fullmatch(code) else "", "prefill_name": nev.strip()[:80]}
+    return _render(request, "runners.html", viewer, **_runners_context(viewer), **prefill)
 
 
 @app.post("/futtatok/parositas")

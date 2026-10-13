@@ -199,3 +199,11 @@ def test_unknown_whisper_model_is_refused(alice):
     r = post(alice, "/uj", {"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "mode": "local",
                             "model_local": "tiny"})
     assert r.status_code == 422 and "Ismeretlen Whisper-modell" in r.text
+
+
+def test_the_runner_window_opens_the_page_with_its_code_filled_in(alice):
+    page = alice.get("/futtatok?kod=kx7-4pm&nev=dolgozószoba").text
+    assert 'value="KX7-4PM"' in page and 'value="dolgozószoba"' in page
+    assert "ugyanez a kód látszik: KX7-4PM" in page  # compare it with the window before approving
+    odd = alice.get('/futtatok?kod="><script>x</script>&nev=' + "n" * 200).text
+    assert "<script>x" not in odd and 'value=""' in odd and "n" * 81 not in odd

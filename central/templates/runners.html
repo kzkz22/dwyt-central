@@ -136,16 +136,20 @@
 {% macro pairing() %}
 <section class="card">
   <h2>Új futtató párosítása</h2>
+  {% if prefill_code %}
+  <p class="warn-box">A futtatód kérte ezt a párosítást. <strong>Csak akkor hagyd jóvá, ha a saját gépeden, a futtató ablakában most ugyanez a kód látszik: {{ prefill_code }}</strong>. Ha valaki más küldte neked ezt a linket, ne nyomd meg a gombot: az ő gépe kapná meg a munkáidat.</p>
+  {% else %}
   <ol>
     <li>Telepítés: <code>uv tool install git+https://github.com/kzkz22/dwyt-runner</code></li>
     <li>Párosítás: <code>dwyt-runner pair {{ base_url }}</code> – a futtató kiír egy kódot.</li>
     <li>Írd be ide a kódot, és adj nevet a futtatónak:</li>
   </ol>
+  {% endif %}
   <form method="post" action="/futtatok/parositas" class="grid">
     <input type="hidden" name="csrf_token" value="{{ csrf }}">
-    <label>Párosítókód <input name="code" placeholder="ABC-123" maxlength="12" required autocomplete="off"></label>
-    <label>Név <input name="name" placeholder="otthoni gép" maxlength="80"></label>
-    <p><button>Jóváhagyás</button></p>
+    <label>Párosítókód <input name="code" placeholder="ABC-123" maxlength="12" required autocomplete="off" value="{{ prefill_code or '' }}"></label>
+    <label>Név <input name="name" placeholder="otthoni gép" maxlength="80" value="{{ prefill_name or '' }}"></label>
+    <p><button{% if prefill_code %} autofocus{% endif %}>Jóváhagyás</button></p>
   </form>
 </section>
 {% endmacro %}
@@ -162,7 +166,7 @@
 </section>
 {% endfor %}
 
-{% if not runners and not shared %}{{ pairing() }}{% endif %}
+{% if prefill_code or (not runners and not shared) %}{{ pairing() }}{% endif %}
 
 <h2>Párosított futtatók</h2>
 {% if not runners and shared %}<p class="muted">Még nincs saját futtatód. Amíg nincs, a megosztott futtató végzi a munkáidat; ha lesz sajátod, az kap elsőbbséget.</p>{% endif %}
@@ -211,5 +215,5 @@
 {% endfor %}
 {% endif %}
 
-{% if runners or shared %}{{ pairing() }}{% endif %}
+{% if (runners or shared) and not prefill_code %}{{ pairing() }}{% endif %}
 {% endblock %}
