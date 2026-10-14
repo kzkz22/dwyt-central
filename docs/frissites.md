@@ -93,6 +93,10 @@ Egyszeri lépések, a fenti frissítés **előtt**:
 3. A téma (világos / sötét) és a becsukott menü böngészőnként tárolódik; először a rendszer témáját követi.
 4. Ha az Apache-on saját `Content-Security-Policy` fejlécet állítottál be, abban is maradjon `default-src 'self'` (a betűtípus és az ikonok a központról jönnek, külső címről semmi).
 
+## Frissítés a 0.15.1-re (visszavont futtatók elrejtve)
+
+Csak a felület: a Futtatók oldal nem listázza a visszavont futtatókat. Az adatbázisban megmaradnak, mert a régi munkák hivatkoznak rájuk. A fenti frissítés elég.
+
 ## Frissítés a 0.15-re (futtató kikapcsolása)
 
 1. A fenti frissítés; a migráció (0015) magától lefut.

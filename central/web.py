@@ -1800,7 +1800,8 @@ def _pair_rate_limited(user_id: int) -> bool:
 
 def _runners_context(viewer: Viewer) -> dict[str, Any]:
     with db.user_session(viewer.id) as s:
-        runners = s.scalars(select(Runner).order_by(Runner.revoked_at.is_not(None), Runner.id)).all()
+        # revoked runners stay in the database (their jobs refer to them) but are not listed
+        runners = s.scalars(select(Runner).where(Runner.revoked_at.is_(None)).order_by(Runner.id)).all()
     shared = sharing.shared_with(viewer.id)
     offers = sharing.shared_with(viewer.id, accepted=False)
     everything = [*runners, *shared, *offers]

@@ -134,7 +134,10 @@ def test_protocol_version_token_and_revocation(alice, anon):
         runner_id = s.scalar(select(Runner.id))
     post(alice, f"/futtatok/{runner_id}/visszavonas")
     assert claim(anon, token).status_code == 401
-    assert "visszavonva" in alice.get("/futtatok").text
+    page = alice.get("/futtatok").text  # revoked: kept in the database, no longer listed
+    assert "visszavonva" not in page and f"/futtatok/{runner_id}/visszavonas" not in page
+    with db.system_session() as s:
+        assert s.get(Runner, runner_id).revoked_at is not None
 
 
 def test_bad_pair_codes_and_results_are_refused(alice, anon):
