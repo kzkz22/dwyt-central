@@ -93,6 +93,11 @@ Egyszeri lépések, a fenti frissítés **előtt**:
 3. A téma (világos / sötét) és a becsukott menü böngészőnként tárolódik; először a rendszer témáját követi.
 4. Ha az Apache-on saját `Content-Security-Policy` fejlécet állítottál be, abban is maradjon `default-src 'self'` (a betűtípus és az ikonok a központról jönnek, külső címről semmi).
 
+## Frissítés a 0.17.1-re (a postaláda régebbi videóinak leírása)
+
+1. A fenti frissítés; a 0018-as migráció magától lefut.
+2. A videó leírását a központ a hírcsatornából veszi. Ami a 0.17 előtt (vagy a frissítés közben) került a postaládába, annak még nincs leírása; a migráció ezért minden olyan csatornát azonnali újraellenőrzésre jelöl, és a háttér pár percen belül pótolja. Kézzel ugyanezt a Csatornák oldal „Ellenőrzés most” gombja teszi.
+
 ## Frissítés a 0.17-re (8. kör: Megnézendő, megosztás telefonról, olvasott jelölés, gyors döntés a Postaládában)
 
 1. A fenti frissítés; az adatbázis-migráció (0017) magától lefut. A meglévő elemek olvasottként indulnak, így a Könyvtárban csak az ezután elkészülők kapnak „olvasatlan” pöttyöt.

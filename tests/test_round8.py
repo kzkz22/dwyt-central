@@ -260,3 +260,22 @@ def test_installable_web_app_with_a_share_target(anon):
     sw = anon.get("/sw.js")
     assert sw.status_code == 200 and "javascript" in sw.headers["content-type"]
     assert 'rel="manifest"' in anon.get("/belepes").text
+
+
+def test_migration_0018_rechecks_feeds_whose_videos_have_no_description(alice, emails, fake_youtube):
+    from alembic import command
+    from alembic.config import Config
+    from conftest import ROOT
+
+    fake_youtube.feeds[GARDEN] = [("vid-new-001", "Metszés", iso(-1))]
+    follow(alice, GARDEN)
+    poll()  # seen before 0017 (no description): checked just now
+    assert rows("SELECT last_checked_at IS NOT NULL FROM channels")[0][0]
+    cfg = Config(str(ROOT / "alembic.ini"))
+    cfg.set_main_option("script_location", str(ROOT / "migrations"))
+    command.downgrade(cfg, "0017")
+    command.upgrade(cfg, "head")
+    assert rows("SELECT last_checked_at FROM channels")[0][0] is None  # due at the next background round
+    fake_youtube.feeds[GARDEN] = [("vid-new-001", "Metszés", iso(-1), "Ősszel metszünk.")]
+    poll()
+    assert "A videó leírása:</b> Ősszel metszünk." in alice.get("/postalada").text
