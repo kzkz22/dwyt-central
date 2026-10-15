@@ -178,6 +178,26 @@ def requeue_expired(s: DbSession, user_id: int, settings: Settings) -> None:
         job.updated_at = now
 
 
+def release_lost(s: DbSession, runner: Runner, holding: list[int], settings: Settings) -> None:
+    """Jobs running on this runner that it no longer has (it restarted mid-job): a cancelled one ends now,
+    the others go back to the queue at once instead of waiting for the lease to run out."""
+    now = utcnow()
+    lost = s.scalars(select(Job).where(Job.runner_id == runner.id, Job.state == "running",
+                                       Job.id.not_in(holding)).with_for_update(skip_locked=True)).all()
+    for job in lost:
+        if job.cancel_requested:
+            job.state, job.finished_at, job.error = "cancelled", now, None
+        elif job.attempts >= settings.job_max_attempts:
+            job.state, job.finished_at = "failed", now
+            job.error = "A futtató újraindult a munka közben; a próbálkozások elfogytak."
+            if job.kind not in QUIET_KINDS:
+                notify.job_failed(s, job)
+        else:
+            job.state, job.stage, job.runner_id, job.lease_until = "queued", "queued", None, None
+            job.error = "A futtató újraindult a munka közben; a munka visszakerült a sorba."
+        job.updated_at = now
+
+
 def claim(s: DbSession, runner: Runner, caps: dict[str, Any], settings: Settings) -> Job | None:
     """The next job for this runner: its owner's, or (decision 17.5) of a user it is shared with,
     within that share's effective capabilities, in turn between the users."""

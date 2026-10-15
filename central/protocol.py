@@ -61,6 +61,7 @@ def _authenticate(token: str) -> Runner | None:
             return None
         if runner.last_seen_at is None or (utcnow() - runner.last_seen_at).total_seconds() > 10:
             runner.last_seen_at = utcnow()
+            s.flush()  # before expunge: a detached object's change is never written (heartbeats kept it "offline")
         s.expunge(runner)
         return runner
 
@@ -231,6 +232,9 @@ class ClaimBody(BaseModel):
     runner_version: str | None = Field(default=None, max_length=40)
     tool_versions: dict[Annotated[str, StringConstraints(max_length=40)],
                         Annotated[str, StringConstraints(max_length=40)]] = Field(default_factory=dict, max_length=20)
+    # the jobs the runner still works on while asking (None: an older runner that does not say). A job this
+    # runner holds on our side but not on its own was lost (the runner restarted): it goes back to the queue.
+    holding: list[int] | None = Field(default=None, max_length=50)
 
 
 def _claim_once(runner: Runner, body: ClaimBody, version: int) -> dict | None:
@@ -245,6 +249,8 @@ def _claim_once(runner: Runner, body: ClaimBody, version: int) -> dict | None:
         r = s.get(Runner, runner.id)
         r.capabilities = {**caps, "tool_versions": body.tool_versions}
         r.version, r.protocol, r.last_seen_at = body.runner_version, version, utcnow()
+        if body.holding is not None:
+            jobs.release_lost(s, r, body.holding, settings)
         job = jobs.claim(s, r, caps, settings)
         if job is None:
             return None

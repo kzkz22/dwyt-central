@@ -223,3 +223,43 @@ def test_after_approval_the_page_reloads_once_the_runner_has_its_token(alice, an
     r = alice.get(url)
     assert r.status_code == 200 and r.headers["HX-Redirect"] == "/futtatok"
     assert "dolgozószoba" in alice.get("/futtatok").text
+
+
+def _rows(sql):
+    from central import db
+    from sqlalchemy import text
+    with db.system_engine().begin() as conn:
+        result = conn.execute(text(sql))
+        return result.all() if result.returns_rows else []
+
+
+def test_heartbeats_keep_a_busy_runner_online(alice, anon):
+    token = pair_runner(alice, anon)
+    _submit(alice, summarize=False)
+    job = claim(anon, token).json()
+    _rows("UPDATE runners SET last_seen_at = now() - interval '5 minutes'")  # a long job: no claims meanwhile
+    assert "Egyik futtatód sem jelentkezett" in alice.get("/munkak/lista").text
+    anon.post(f"/runner/v1/jobs/{job['job_id']}/heartbeat", json={"stage": "summarize"}, headers=runner_headers(token))
+    assert _rows("SELECT now() - last_seen_at < interval '10 seconds' FROM runners")[0][0]
+    assert "Egyik futtatód sem jelentkezett" not in alice.get("/munkak/lista").text
+
+
+def test_a_runner_that_restarted_mid_job_gets_its_jobs_released(alice, anon):
+    token = pair_runner(alice, anon)
+    _submit(alice, summarize=False)
+    job = claim(anon, token).json()
+    old = {**CAPS}
+    # an older runner says nothing about what it holds: the job stays with it
+    assert claim(anon, token, old).status_code == 204
+    assert _rows(f"SELECT state FROM jobs WHERE id = {job['job_id']}")[0][0] == "running"
+    # a restarted runner asks for work holding nothing: the job comes back to it at once
+    again = anon.post("/runner/v1/claim", json={"capabilities": CAPS, "runner_version": "0.11.1", "holding": []},
+                      headers=runner_headers(token))
+    assert again.status_code == 200 and again.json()["job_id"] == job["job_id"]
+    # cancelled on the page while the runner was gone: it ends as soon as the runner asks again
+    assert post(alice, f"/munkak/{job['job_id']}/megszakitas").status_code in (200, 303)
+    assert _rows(f"SELECT state, cancel_requested FROM jobs WHERE id = {job['job_id']}")[0] == ("running", True)
+    r = anon.post("/runner/v1/claim", json={"capabilities": CAPS, "runner_version": "0.11.1", "holding": []},
+                  headers=runner_headers(token))
+    assert r.status_code == 204
+    assert _rows(f"SELECT state FROM jobs WHERE id = {job['job_id']}")[0][0] == "cancelled"

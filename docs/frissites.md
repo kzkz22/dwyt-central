@@ -93,6 +93,12 @@ Egyszeri lépések, a fenti frissítés **előtt**:
 3. A téma (világos / sötét) és a becsukott menü böngészőnként tárolódik; először a rendszer témáját követi.
 4. Ha az Apache-on saját `Content-Security-Policy` fejlécet állítottál be, abban is maradjon `default-src 'self'` (a betűtípus és az ikonok a központról jönnek, külső címről semmi).
 
+## Frissítés a 0.16.4-re (futó munka közben is elérhető futtató, újraindult futtató munkái)
+
+1. A fenti frissítés; migráció nincs.
+2. Hosszú munka közben (például egy összefoglalónál) a Munkák oldal eddig 90 másodperc után azt írta, hogy „Egyik futtatód sem jelentkezett”, mert a szívverés nem frissítette a futtató utolsó jelentkezését. Most igen.
+3. Ha a futtató munka közben újraindul (dwyt-runner 0.11.1-től), a munkáját a központ azonnal visszateszi a sorba, a megszakítottat lezárja; eddig a lízing lejártáig (15 perc) „folyamatban” maradt, és nem lehetett megszakítani.
+
 ## Frissítés a 0.16.3-ra (letöltés a Futtatók oldalon)
 
 Csak a felület: az „Új futtató” → *Asztali gépre* fülön letöltőgombok a Windows-telepítőhöz és a Linux AppImage-hez (a dwyt-runner legújabb GitHub-kiadásából), és linkek az útmutatókhoz. A fenti frissítés elég.
