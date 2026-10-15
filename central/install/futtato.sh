@@ -61,8 +61,16 @@ if [ "$(id -u)" = "0" ]; then
   else
     say "2/5 A dwyt-runner rendszerfelhasználó már megvan."
   fi
+  # a clean environment for the runner's user (root's variables stay with root), only proxy and CA settings kept
+  PASS=""
+  for v in HTTP_PROXY HTTPS_PROXY NO_PROXY http_proxy https_proxy no_proxy SSL_CERT_FILE SSL_CERT_DIR; do
+    eval "val=\${$v:-}"
+    [ -n "$val" ] && PASS="$PASS $v=$val"
+  done
   as_user() {
-    runuser -u "$RUN_USER" -- env HOME="$HOME_DIR" PATH="$HOME_DIR/.local/bin:/usr/local/bin:/usr/bin:/bin" "$@"
+    # shellcheck disable=SC2086
+    runuser -u "$RUN_USER" -- env -i HOME="$HOME_DIR" LANG=C.UTF-8 \
+      PATH="$HOME_DIR/.local/bin:/usr/local/bin:/usr/bin:/bin" $PASS "$@"
   }
 else
   SYSTEM=0
@@ -82,8 +90,10 @@ else
   as_user env UV_NO_MODIFY_PATH=1 sh "$TMP/uv-install.sh" >/dev/null || die "az uv telepítése nem sikerült."
 fi
 say "4/5 A futtató telepítése (Python 3.13-mal, ez pár perc) …"
-as_user uv tool install --force --python 3.13 "dwyt-runner @ $SOURCE" >/dev/null \
-  || die "a futtató telepítése nem sikerült (uv tool install)."
+if ! as_user uv tool install --force --python 3.13 "dwyt-runner @ $SOURCE" > "$TMP/uv.log" 2>&1; then
+  tail -n 15 "$TMP/uv.log" >&2
+  die "a futtató telepítése nem sikerült (uv tool install)."
+fi
 RUNNER="$HOME_DIR/.local/bin/dwyt-runner"
 [ -x "$RUNNER" ] || die "a futtató nem került ide: $RUNNER"
 printf '%s\n' "$TOKEN" | as_user "$RUNNER" adopt --server "$CENTRAL" --runner-id "$RUNNER_ID" --name "$NAME" \
@@ -92,9 +102,10 @@ TOKEN=""
 
 # ---- 4. the service ------------------------------------------------------------------------------------
 say "5/5 Szolgáltatás beállítása …"
-if ! command -v systemctl >/dev/null 2>&1; then
+if ! command -v systemctl >/dev/null 2>&1 || [ ! -d /run/systemd/system ]; then
   DONE=1
-  say "Nincs systemd ezen a gépen. A futtató telepítve és párosítva; indítsd így: $RUNNER run"
+  say "Ezen a gépen nem a systemd fut. A futtató telepítve és párosítva; indítsd így:"
+  if [ "$SYSTEM" = "1" ]; then say "  runuser -u $RUN_USER -- $RUNNER run"; else say "  $RUNNER run"; fi
   exit 0
 fi
 if [ "$SYSTEM" = "1" ]; then

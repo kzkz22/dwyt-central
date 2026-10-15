@@ -591,7 +591,8 @@ select { max-width: 100%; }
   font-size: .88rem; word-break: break-all; user-select: all; }
 .modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin: 6px 0 2px; }
 .modes button { text-align: left; border: 1px solid hsl(var(--border)); border-radius: 10px; padding: 10px 12px; display: flex;
-  flex-direction: column; gap: 3px; background: hsl(var(--card)); color: hsl(var(--foreground)); font-weight: 400; min-height: 0; }
+  flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 3px; background: hsl(var(--card));
+  color: hsl(var(--foreground)); font-weight: 400; min-height: 0; }
 .modes button.on { border: 2px solid hsl(var(--primary)); background: hsl(var(--primary) / .06); }
 .rs-field { display: grid; grid-template-columns: minmax(180px, 260px) 1fr; gap: 6px 16px; padding: 11px 0;
   border-top: 1px solid hsl(var(--border)); align-items: start; }
