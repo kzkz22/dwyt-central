@@ -262,7 +262,7 @@ Ellenőrzés: `curl -sI https://dwyt.iodate.date/healthz` → `200`, és a vála
 
 1. `https://dwyt.iodate.date` → **Belépés Google-lel** a 6. lépésben megadott címmel. Az Admin menüben látszol adminként.
 2. **Admin → Meghívó:** e-mail-cím → a kapott linket küldd el a meghívottnak (7 napig érvényes, egyszer használható).
-3. **Futtatók:** a saját gépeden telepítsd a futtatót ([dwyt-runner](https://github.com/kzkz22/dwyt-runner)), `dwyt-runner pair https://dwyt.iodate.date`, a kiírt kódot írd be itt.
+3. **Futtatók:** az „Új futtató” részen *Szerverre (Linux)*: a „Telepítőparancs kérése” után kapott parancsot futtasd a szerveren (5 percig érvényes); telepít, párosít és szolgáltatásként elindít, a beállítás utána a futtató **Beállítás** gombjával megy. Asztali gépre a *Asztali gépre* fül, egy már telepített futtatóhoz a *Párosítás kóddal* fül ([dwyt-runner](https://github.com/kzkz22/dwyt-runner)).
 4. **Új átirat:** egy YouTube-link „YouTube-felirat” móddal; a futtató pár másodpercen belül elkezdi.
 5. A menü bal oldalt van; asztali gépen a fejlécében lévő gombbal ikonsávvá csukható, mobilon a bal felső gombbal nyílik. A téma a menü alján váltható.
 6. **Kérdezés:** az elem oldalán „Kérdezz a videóról”, a Keresés oldalon „Kérdezz a könyvtáradról”; a választ a futtató írja (dwyt-runner 0.6-tól, a modell az `llm_ask_model`, AI-routeren a `kerdes` név). A beszélgetések a **Beszélgetések** menüpontban vannak, Markdownként letölthetők.

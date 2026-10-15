@@ -12,13 +12,13 @@ from datetime import timedelta
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Header, Request
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 from pydantic import BaseModel, Field, StringConstraints, ValidationError, field_validator
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as sa_insert
 from starlette.concurrency import run_in_threadpool
 
-from . import db, jobs, modelinfo, ownfiles, ratelimit
+from . import db, jobs, modelinfo, ownfiles, ratelimit, remote
 from .config import get_settings
 from .db import utcnow
 from .models import Item, Job, PairRequest, Runner, Source, User
@@ -144,6 +144,32 @@ async def pair_poll(body: PairPoll, _v: int = Depends(check_version)):
     return JSONResponse(data, status_code=status)
 
 
+class PairRedeem(BaseModel):
+    code: str = Field(min_length=4, max_length=20)
+    name: str = Field(default="", max_length=200)
+
+
+@router.post("/pair/redeem")
+async def pair_redeem(body: PairRedeem, request: Request, format: str = "", _v: int = Depends(check_version)):
+    """The one-line installer trades its 5-minute install code for a runner token (protocol: "Telepítés
+    egy paranccsal"). ?format=env answers in lines a plain sh can read."""
+    wait = ratelimit.hit("install-redeem", request.client.host if request.client else None)
+    if wait:
+        return JSONResponse({"error": f"Túl sok próbálkozás erről a címről; próbáld újra {wait} másodperc múlva."},
+                            status_code=429, headers={"Retry-After": str(wait)})
+    done = await run_in_threadpool(remote.redeem, body.code, body.name)
+    if done is None:
+        message = ("A telepítőkód lejárt, már felhasználták, vagy nincs ilyen. Kérj új parancsot a dwyt "
+                   "Futtatók oldalán.")
+        if format == "env":
+            return PlainTextResponse(f"ERROR={message}\n", status_code=410)
+        return _error(410, message)
+    if format == "env":
+        return PlainTextResponse(f"DWYT_RUNNER_ID={done['runner_id']}\nDWYT_TOKEN={done['token']}\n",
+                                 headers={"Cache-Control": "no-store"})
+    return JSONResponse(done, headers={"Cache-Control": "no-store"})
+
+
 def pairing_collected(user_id: int, code: str) -> bool:
     """False while this user's approved code still waits for its runner to fetch the token."""
     code = normalise_code(code)
@@ -227,15 +253,76 @@ def _claim_once(runner: Runner, body: ClaimBody, version: int) -> dict | None:
 
 @router.post("/claim")
 async def claim(body: ClaimBody, runner: Runner = Depends(current_runner), version: int = Depends(check_version)):
+    """Long-poll for a job. `Dwyt-Settings: pending` says settings changes wait (then no long waiting)."""
     settings = get_settings()
     deadline = time.monotonic() + settings.claim_wait_s
     while True:
         found = await run_in_threadpool(_claim_once, runner, body, version)
+        pending = await run_in_threadpool(remote.has_pending, runner.id)
+        headers = {"Dwyt-Settings": "pending"} if pending else {}
         if found is not None:
-            return found
-        if time.monotonic() + settings.claim_poll_s > deadline:
-            return Response(status_code=204)
+            return JSONResponse(found, headers=headers)
+        if pending or time.monotonic() + settings.claim_poll_s > deadline:
+            return Response(status_code=204, headers=headers)
         await asyncio.sleep(settings.claim_poll_s)
+
+
+# ---- remote settings (round 7d) ------------------------------------------------------------------
+
+class SettingsReport(BaseModel):
+    runner_version: str | None = Field(default=None, max_length=40)
+    latest_version: str | None = Field(default=None, max_length=40)
+    install: Literal["service", "app"] | None = None
+    remote: bool = False
+    public_key: str | None = Field(default=None, max_length=2000)
+    describe: dict[str, Any] | None = None
+    modes: list[dict[str, Any]] | None = Field(default=None, max_length=10)
+    mode: str | None = Field(default=None, max_length=40)
+    values: dict[Annotated[str, StringConstraints(max_length=60)],
+                 Annotated[str, StringConstraints(max_length=4000)]] | None = Field(default=None, max_length=200)
+    secrets_set: list[Annotated[str, StringConstraints(max_length=60)]] | None = Field(default=None, max_length=20)
+
+    @field_validator("describe", "modes")
+    @classmethod
+    def _small(cls, value):
+        import json
+        if value is not None and len(json.dumps(value)) > 200_000:
+            raise ValueError("too large")
+        return value
+
+    @field_validator("public_key")
+    @classmethod
+    def _pem(cls, value):
+        if value is not None and not value.startswith("-----BEGIN PUBLIC KEY-----"):
+            raise ValueError("public_key must be a PEM public key")
+        return value
+
+
+@router.put("/settings")
+async def settings_report(body: SettingsReport, runner: Runner = Depends(current_runner)):
+    pending = await run_in_threadpool(remote.store_report, runner.id, body.model_dump())
+    return {"pending": pending}
+
+
+@router.get("/settings/changes")
+async def settings_changes(runner: Runner = Depends(current_runner)):
+    return {"changes": await run_in_threadpool(remote.take, runner.id)}
+
+
+class ChangeResult(BaseModel):
+    ok: bool = True
+    applied: list[Annotated[str, StringConstraints(max_length=60)]] = Field(default_factory=list, max_length=200)
+    errors: dict[Annotated[str, StringConstraints(max_length=60)],
+                 Annotated[str, StringConstraints(max_length=500)]] = Field(default_factory=dict, max_length=200)
+    checks: dict[Annotated[str, StringConstraints(max_length=60)], list[Any]] = Field(default_factory=dict,
+                                                                                      max_length=20)
+    message: str = Field(default="", max_length=1000)
+
+
+@router.post("/settings/changes/{change_id}/result")
+async def settings_change_result(change_id: int, body: ChangeResult, runner: Runner = Depends(current_runner)):
+    ok = await run_in_threadpool(remote.finish, runner.id, change_id, body.model_dump())
+    return {"ok": True} if ok else _error(404, "no such open change")
 
 
 class HeartbeatBody(BaseModel):

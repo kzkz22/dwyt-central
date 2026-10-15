@@ -32,7 +32,7 @@ from sqlalchemy.dialects.postgresql import insert
 from starlette.concurrency import run_in_threadpool
 
 from . import (accounts, captionpolicy, chat, db, export, indexing, items, jobs, library, mailer, mcp_server,
-               modelinfo, notify, ownfiles, personal, protocol, ratelimit, render, search, secretbox, security,
+               modelinfo, notify, ownfiles, personal, protocol, ratelimit, remote, render, search, secretbox, security,
                sources, subscriptions, sharing, youtube)
 from . import submit as submit_mod
 from .submit import CLOUD_MODELS, LOCAL_MODELS, MODES, parse_options
@@ -1808,7 +1808,9 @@ def _runners_context(viewer: Viewer) -> dict[str, Any]:
     return {"runners": runners, "models": {r.id: _runner_models(r) for r in everything},
             "online": {r.id for r in everything if sharing.online(r)},
             "shares": sharing.owner_shares(viewer.id), "shared": shared, "offers": offers,
-            "protocol": protocol.PROTOCOL, "base_url": get_settings().base_url}
+            "protocol": protocol.PROTOCOL, "base_url": get_settings().base_url,
+            "can_update": {r.id for r in runners if remote.can_update(r)},
+            "install_minutes": remote.INSTALL_MINUTES}
 
 
 def _runner_models(r: Runner) -> list[dict[str, Any]]:
@@ -1838,13 +1840,133 @@ PAIR_CODE_RE = re.compile(r"[A-Z0-9-]{3,12}")
 
 
 @app.get("/futtatok", response_class=HTMLResponse)
-def runners_page(request: Request, kod: str = "", nev: str = "", viewer: Viewer = Depends(current_viewer)):
+def runners_page(request: Request, kod: str = "", nev: str = "", ful: str = "",
+                 viewer: Viewer = Depends(current_viewer)):
     """`?kod=…&nev=…`: the runner's setup window opens this with its pairing code filled in (like an OAuth
     device flow's complete URI). Nothing is approved without the button, and the page asks to compare the
     code with the one in the runner's window, so a link from someone else cannot pair their runner unseen."""
     code = kod.strip().upper()
-    prefill = {"prefill_code": code if PAIR_CODE_RE.fullmatch(code) else "", "prefill_name": nev.strip()[:80]}
+    prefill = {"prefill_code": code if PAIR_CODE_RE.fullmatch(code) else "", "prefill_name": nev.strip()[:80],
+               "tab": ful if ful in INSTALL_TABS else ("kod" if kod else "")}
     return _render(request, "runners.html", viewer, **_runners_context(viewer), **prefill)
+
+
+INSTALL_TABS = ("szerver", "asztali", "kod")
+
+
+@app.post("/futtatok/telepitokod")
+async def install_code(request: Request, viewer: Viewer = Depends(authed_post)):
+    """A one-line install command with a 5-minute, single-use code (decision 18.17)."""
+    wait = ratelimit.hit("install-code", str(viewer.id))
+    try:
+        if wait:
+            raise remote.RemoteError(f"Túl sok telepítőparancs egymás után; próbáld újra {wait // 60 + 1} perc múlva.")
+        code = await run_in_threadpool(remote.new_install_code, viewer.id)
+    except remote.RemoteError as exc:
+        return _render(request, "runners.html", viewer, status_code=429, **_runners_context(viewer), tab="szerver",
+                       error=str(exc))
+    command = f"curl -fsSL {get_settings().base_url}/futtato.sh | sh -s -- {code}"
+    return _render(request, "runners.html", viewer, **_runners_context(viewer), tab="szerver",
+                   install_command=command)
+
+
+INSTALL_SCRIPT = Path(__file__).parent / "install" / "futtato.sh"
+
+
+@app.get("/futtato.sh", include_in_schema=False)
+def install_script():
+    """The one-line installer, with this service's address filled in. Public: no code or secret in it."""
+    body = INSTALL_SCRIPT.read_text(encoding="utf-8").replace("@CENTRAL_URL@", get_settings().base_url)
+    return PlainTextResponse(body, media_type="text/x-shellscript; charset=utf-8",
+                             headers={"Cache-Control": "no-cache"})
+
+
+def _settings_view(data: dict[str, Any]) -> dict[str, Any]:
+    r = data["runner"]
+    st = r.settings or {}
+    values = st.get("values") or {}
+    groups = []
+    for g in (st.get("describe") or {}).get("groups") or []:
+        fields = []
+        for f in g.get("settings") or []:
+            if not isinstance(f, dict) or f.get("key") in ("token", "runner_id"):
+                continue
+            key = f["key"]
+            fields.append({**f, "value": values.get(key, ""), "editable": remote.editable(f),
+                           "is_set": key in (st.get("secrets_set") or []),
+                           "checked": remote._norm("bool", values.get(key, "")) == "igen"})
+        if any(x["editable"] for x in fields) or any(x["key"] == "server" for x in fields):
+            groups.append({"title": g.get("title") or "", "basic": [x for x in fields if not x.get("advanced")],
+                           "advanced": [x for x in fields if x.get("advanced")]})
+    labels = {k: f.get("label") or k for k, f in remote.fields_of(st).items()}
+    return {**data, "groups": groups, "modes": st.get("modes") or [], "mode": st.get("mode") or "", "labels": labels,
+            "editable_keys": [x["key"] for g in groups for x in g["basic"] + g["advanced"]
+                              if x["editable"] and x.get("kind") != "secret"],
+            "bool_keys": [x["key"] for g in groups for x in g["basic"] + g["advanced"]
+                          if x["editable"] and x.get("kind") == "bool"],
+            "secret_keys": [x["key"] for g in groups for x in g["basic"] + g["advanced"]
+                            if x["editable"] and x.get("kind") == "secret"],
+            "can_update": remote.can_update(r), "online": sharing.online(r)}
+
+
+def _runner_settings_page(request: Request, viewer: Viewer, runner_id: int, status_code: int = 200, **ctx: Any):
+    data = remote.page_data(viewer.id, runner_id)
+    if data is None:
+        return PlainTextResponse("Nincs ilyen futtató.", status_code=404)
+    return _render(request, "runner_settings.html", viewer, status_code=status_code, **_settings_view(data), **ctx)
+
+
+@app.get("/futtatok/{runner_id}/beallitas", response_class=HTMLResponse)
+def runner_settings_page(request: Request, runner_id: int, viewer: Viewer = Depends(current_viewer)):
+    return _runner_settings_page(request, viewer, runner_id)
+
+
+@app.post("/futtatok/{runner_id}/beallitas")
+async def runner_settings_save(request: Request, runner_id: int, viewer: Viewer = Depends(authed_post)):
+    """Only the owner (the change goes through remote.create_change's owner check). Keys come encrypted by the
+    browser (enc_<key>); their plain input fields have no name and are never sent."""
+    form = await request.form()
+    data = await run_in_threadpool(remote.page_data, viewer.id, runner_id)
+    if data is None:
+        return PlainTextResponse("Nincs ilyen futtató.", status_code=404)
+    view = _settings_view(data)
+    values: dict[str, str] = {}
+    for key in view["editable_keys"]:
+        if key in view["bool_keys"]:
+            values[key] = "igen" if form.get("v_" + key) == "on" else "nem"
+        elif "v_" + key in form:
+            values[key] = str(form.get("v_" + key))
+    encrypted = {k: str(form.get("enc_" + k, "")) for k in view["secret_keys"] if form.get("enc_" + k)}
+    clear = [k for k in view["secret_keys"] if form.get("clear_" + k) == "on"]
+    wait = ratelimit.hit("runner-settings", str(viewer.id))
+    try:
+        if wait:
+            raise remote.RemoteError(f"Túl sok mentés egymás után; próbáld újra {wait // 60 + 1} perc múlva.")
+        change = await run_in_threadpool(remote.create_change, viewer.id, viewer.name or viewer.email, runner_id,
+                                         values, encrypted, clear)
+    except remote.RemoteError as exc:
+        return _runner_settings_page(request, viewer, runner_id, status_code=422, error=str(exc))
+    if change is None:
+        return _runner_settings_page(request, viewer, runner_id, notice="Nem változott semmi.")
+    return _redirect(f"/futtatok/{runner_id}/beallitas")
+
+
+@app.get("/futtatok/{runner_id}/beallitas/allapot")
+async def runner_settings_state(runner_id: int, viewer: Viewer = Depends(current_viewer)):
+    """Polled while changes wait for the runner: once it has answered, the page reloads (htmx)."""
+    if await run_in_threadpool(remote.any_open, viewer.id, runner_id):
+        return Response(status_code=204)
+    return Response(status_code=200, headers={"HX-Redirect": f"/futtatok/{runner_id}/beallitas"})
+
+
+@app.post("/futtatok/{runner_id}/frissites")
+async def runner_update(request: Request, runner_id: int, viewer: Viewer = Depends(authed_post)):
+    """Frissítés most (decision 18.16)."""
+    try:
+        await run_in_threadpool(remote.request_update, viewer.id, viewer.name or viewer.email, runner_id)
+    except remote.RemoteError as exc:
+        return _render(request, "runners.html", viewer, status_code=422, **_runners_context(viewer), error=str(exc))
+    return _redirect(f"/futtatok/{runner_id}/beallitas")
 
 
 @app.post("/futtatok/parositas")

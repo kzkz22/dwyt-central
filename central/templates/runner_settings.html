@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block title %}{{ runner.name }} – beállítás{% endblock %}
+{% block content %}
+{% set st = runner.settings or {} %}
+<p class="muted"><a href="/futtatok">← Futtatók</a></p>
+<h1>{{ runner.name }} – beállítás</h1>
+{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+{% if notice %}<p class="notice" role="status">{{ notice }}</p>{% endif %}
+
+{% if open %}
+<div hx-get="/futtatok/{{ runner.id }}/beallitas/allapot" hx-trigger="every 3s" hx-swap="none"></div>
+<p class="warn-box" role="status"><span class="spin"></span>
+  {{ open|length }} változás vár átadásra:
+  {% for c in open %}{% for x in c.lines %}<strong>{{ x.label }}{% if x.secret %}: {{ x.new }}{% elif x.key %}: {{ x.new }}{% else %} ({{ x.new }}){% endif %}</strong>{% if not loop.last %}, {% endif %}{% endfor %}{% if not loop.last %}; {% endif %}{% endfor %}.
+  A futtató a következő jelentkezésekor átveszi (pár másodperc){% if not online %}; most nem jelentkezik, ezért bekapcsoláskor{% endif %}.</p>
+{% endif %}
+{% for c in recent %}
+  {% if c.state == "done" %}<p class="notice">Átvette {{ c.finished_at|local }}-kor.{% for k, v in (c.result.checks or {}).items() %} <span class="muted">Kulcspróba: {{ v[1] }}.</span>{% endfor %}{% if c.result.message %} <span class="muted">{{ c.result.message }}</span>{% endif %}</p>
+  {% else %}<p class="error">{% if c.action == "update" %}A frissítés nem sikerült{% else %}Nem vette át{% endif %}{% if c.result.errors %}: {% for k, v in c.result.errors.items() %}<strong>{{ labels.get(k, k) }}</strong> – {{ v }}{% if not loop.last %}; {% endif %}{% endfor %}{% elif c.result.message %}: {{ c.result.message }}{% endif %}.{% if c.state == "partial" %} A többi változást átvette.{% endif %}</p>{% endif %}
+{% endfor %}
+
+{% if not runner.remote_settings or not st.describe %}
+<section class="card">
+  <p>Ez a futtató nem engedi a dwyt-ből való beállítást{% if runner.install == "app" %}: asztali alkalmazás, a beállítás a gép ablakában történik. A dwyt-ből állítás ott, a <strong>Működés</strong> lapon kapcsolható be{% else %}{% if not runner.settings_at %}, vagy még nem jelentkezett vele (a 0.10-nél régebbi futtató ezt nem tudja){% endif %}{% endif %}.</p>
+</section>
+{% else %}
+<div class="state">{% if runner.settings_at %}<span class="badge own">{{ 'szinkronban' if not open else 'átadásra vár' }}</span><span class="muted">A futtató {{ runner.settings_at|local }}-kor jelentette a beállításait (dwyt-runner {{ runner.version }}).</span>{% endif %}
+  {% if can_update %}<form method="post" action="/futtatok/{{ runner.id }}/frissites" class="inline"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="small">Frissítés most: {{ runner.latest_version }}</button></form>{% endif %}</div>
+
+<form method="post" action="/futtatok/{{ runner.id }}/beallitas" data-runner-settings data-public-key="{{ runner.public_key or '' }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+  {% if modes %}
+  <section class="card"><h2>Működési mód</h2>
+    <div class="modes">
+    {% for m in modes %}<button type="button" class="{{ 'on' if m.id == mode }}" data-mode="{{ m.id }}" data-values='{{ (m["values"] or {})|tojson }}'><strong>{{ m.title }}</strong><span class="muted">{{ m.text }}</span></button>{% endfor %}
+    </div>
+    <p class="muted">A mód csak kitölti a lenti mezőket; a Mentéssel kerül a futtatóhoz. Kulcsot és címet egyik mód sem töröl.</p>
+  </section>
+  {% endif %}
+
+  {% macro field(f) %}
+  {% set off = not f.editable %}
+  <div class="rs-field{{ ' off' if off }}" data-key="{{ f.key }}"{% if f.show_if %} data-when='{{ f.show_if|tojson }}'{% endif %}>
+    <label class="lbl" for="f_{{ f.key }}">{{ f.label }}{% if f.unit %} <span class="muted">({{ f.unit }})</span>{% endif %}</label>
+    <div>
+    {% if f.kind == "secret" %}
+      {% if off %}<span class="muted">csak a futtató gépén</span>
+      {% else %}
+      <div class="secret">{% if f.is_set %}<span class="badge own">beállítva</span>{% else %}<span class="badge">nincs</span>{% endif %}
+        <input type="password" id="f_{{ f.key }}" data-secret="{{ f.key }}" placeholder="új kulcs" autocomplete="off">
+        <input type="hidden" name="enc_{{ f.key }}" value="">
+        {% if f.is_set %}<label class="choice"><input type="checkbox" name="clear_{{ f.key }}"> törlés</label>{% endif %}</div>
+      <span class="lock">🔒 a böngésződ titkosítja a futtató kulcsával; a dwyt nem látja, kiolvasni nem lehet</span>
+      {% endif %}
+    {% elif f.kind == "bool" %}
+      <label class="choice"><input type="checkbox" id="f_{{ f.key }}" name="v_{{ f.key }}"{% if f.checked %} checked{% endif %}{% if off %} disabled{% endif %}> be</label>
+    {% elif f.kind == "choice" %}
+      <select id="f_{{ f.key }}" name="v_{{ f.key }}"{% if off %} disabled{% endif %}>{% for c in f.choices %}<option value="{{ c.value }}"{% if c.value == f.value %} selected{% endif %}>{{ c.label }}</option>{% endfor %}</select>
+    {% elif f.kind == "map" %}
+      <textarea id="f_{{ f.key }}" name="v_{{ f.key }}" rows="2"{% if off %} disabled{% endif %}>{{ f.value }}</textarea>
+    {% else %}
+      <input type="text" id="f_{{ f.key }}" name="v_{{ f.key }}" value="{{ f.value }}"{% if f.kind in ("int", "float") %} inputmode="decimal"{% endif %}{% if off %} disabled{% endif %}>
+    {% endif %}
+    </div>
+    <p class="help">{{ f.help }}{% if off and f.kind != "secret" %} · csak a futtató gépén állítható{% endif %}</p>
+  </div>
+  {% endmacro %}
+
+  {% for g in groups %}
+  <section class="card"><h2>{{ g.title }}</h2>
+    {% for f in g.basic %}{{ field(f) }}{% endfor %}
+    {% if g.advanced %}<details><summary class="muted">Haladó ({{ g.advanced|length }})</summary>{% for f in g.advanced %}{{ field(f) }}{% endfor %}</details>{% endif %}
+  </section>
+  {% endfor %}
+  <p class="error" data-crypto-missing hidden>A kulcsokat a böngésző csak biztonságos (https) kapcsolaton tudja titkosítani; itt csak a többi beállítás menthető.</p>
+  <div class="savebar"><span class="muted">Csak te állíthatod. Minden változás a naplóba kerül, és értesítés megy róla.</span><button>Mentés</button></div>
+</form>
+{% endif %}
+
+<section class="card"><h2>Napló</h2>
+{% if changes %}
+<div class="table-wrap"><table class="log">
+<thead><tr><th>Mikor</th><th>Ki</th><th>Mit</th><th>Eredmény</th></tr></thead>
+<tbody>
+{% for c in changes %}
+<tr><td>{{ c.created_at|local }}</td><td>{{ c.by_name if c.origin == "dwyt" else "a futtató gépén" }}</td>
+  <td>{% for x in c.lines %}{{ x.label }}{% if x.secret %}: {{ x.new }}{% if x.new == "új kulcs" %} <span class="muted">(a tartalma nem kerül a naplóba)</span>{% endif %}{% elif x.key %}: {{ x.old }} → {{ x.new }}{% else %}: {{ x.old }} → {{ x.new }}{% endif %}{% if not loop.last %}<br>{% endif %}{% endfor %}</td>
+  <td>{% if c.state == "local" %}<span class="badge cloud">helyben állították</span>
+    {% elif c.state == "pending" %}<span class="badge warn">átadásra vár</span>
+    {% elif c.state == "delivered" %}<span class="badge warn">átadva, válaszra vár</span>
+    {% elif c.state == "done" %}<span class="badge own">{{ 'kész' if c.action == 'update' else 'átvette' }}</span>{% for k, v in (c.result.checks or {}).items() %} <span class="muted">kulcspróba: {{ v[1] }}</span>{% endfor %}
+    {% elif c.state == "partial" %}<span class="badge warn">részben</span>
+    {% else %}<span class="badge warn">{{ 'elutasítva' if c.state == 'refused' else 'nem sikerült' }}</span>{% endif %}
+    {% for k, v in (c.result.errors or {}).items() %}<div class="muted">{{ v }}</div>{% endfor %}
+    {% if c.result.message and c.state != "done" %}<div class="muted">{{ c.result.message }}</div>{% endif %}</td></tr>
+{% endfor %}
+</tbody></table></div>
+<p class="muted">A naplóba a beállítás neve és a régi → új érték kerül; kulcsnál csak annyi, hogy megváltozott.</p>
+{% else %}<p class="muted">Még nincs bejegyzés.</p>{% endif %}
+</section>
+<script src="{{ asset('remote.js') }}" defer></script>
+{% endblock %}

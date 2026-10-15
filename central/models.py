@@ -93,6 +93,13 @@ class Runner(Base):
     capabilities: Mapped[dict[str, Any]] = mapped_column(default=dict)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     paused_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # switched off by its owner
+    # remote settings (round 7d): the runner's last report, its public key, how it is installed
+    settings: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    settings_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    remote_settings: Mapped[bool] = mapped_column(Boolean, default=False)
+    install: Mapped[str | None] = mapped_column(Text)
+    latest_version: Mapped[str | None] = mapped_column(Text)
+    public_key: Mapped[str | None] = mapped_column(Text)
 
 
 class PairRequest(Base):
@@ -485,3 +492,35 @@ class ShareUsage(Base):
     cloud_seconds: Mapped[float] = mapped_column(Float, default=0)
     llm_answers: Mapped[int] = mapped_column(Integer, default=0)
     llm_tokens: Mapped[int] = mapped_column(BigInteger, default=0)
+
+
+class RunnerSettingChange(Base):
+    """A settings change for a runner (from dwyt, waiting for / taken by the runner) or one made on the
+    runner's machine; together they are the runner's settings log."""
+    __tablename__ = "runner_setting_changes"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    runner_id: Mapped[int] = mapped_column(ForeignKey("runners.id", ondelete="CASCADE"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    origin: Mapped[str] = mapped_column(Text)  # dwyt | runner
+    by_name: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = _now()
+    lines: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)
+    payload_values: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    secrets: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    clear_keys: Mapped[list[str]] = mapped_column(JSONB, default=list)
+    action: Mapped[str | None] = mapped_column(Text)
+    state: Mapped[str] = mapped_column(Text)
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    result: Mapped[dict[str, Any]] = mapped_column(default=dict)
+
+
+class RunnerInstallCode(Base):
+    __tablename__ = "runner_install_codes"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    code_hash: Mapped[str] = mapped_column(Text, unique=True)
+    created_at: Mapped[datetime] = _now()
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    runner_id: Mapped[int | None] = mapped_column(ForeignKey("runners.id", ondelete="SET NULL"))

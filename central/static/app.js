@@ -182,6 +182,17 @@
 
   function init() {
     syncCollapse();
+    // copy buttons (the install command)
+    document.querySelectorAll("[data-copy]").forEach((button) => {
+      button.addEventListener("click", () => {
+        if (!navigator.clipboard) return;
+        navigator.clipboard.writeText(button.getAttribute("data-copy")).then(() => {
+          const was = button.textContent;
+          button.textContent = "Másolva";
+          setTimeout(() => { button.textContent = was; }, 1500);
+        });
+      });
+    });
     document.querySelectorAll("form#submit-form").forEach((form) => {
       form.addEventListener("change", (e) => {
         if (e.target.name === "source") syncForm(form);

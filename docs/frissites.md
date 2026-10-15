@@ -93,6 +93,13 @@ Egyszeri lépések, a fenti frissítés **előtt**:
 3. A téma (világos / sötét) és a becsukott menü böngészőnként tárolódik; először a rendszer témáját követi.
 4. Ha az Apache-on saját `Content-Security-Policy` fejlécet állítottál be, abban is maradjon `default-src 'self'` (a betűtípus és az ikonok a központról jönnek, külső címről semmi).
 
+## Frissítés a 0.16-ra (egysoros telepítő, távoli beállítás)
+
+1. A fenti frissítés; a migráció (0016) magától lefut. Új beállítás nincs.
+2. **Új futtató** a Futtatók oldalon, három füllel: *Szerverre (Linux)* egy paranccsal telepít és párosít (a parancs telepítőkódja 5 percig él, egyszer használható, jóváhagyni nem kell; a szkript a `/futtato.sh` címen olvasható), *Asztali gépre*, *Párosítás kóddal* (ahogy eddig). Ha az Apache csak bizonyos útvonalakat enged ki, a `/futtato.sh` is legyen elérhető onnan, ahonnan telepítesz.
+3. **Beállítás** gomb a futtató kártyáján: a 0.10-es vagy újabb futtató beállításai innen állíthatók, ha a futtató engedi (szerveren alapból igen, az asztali alkalmazásban a Működés lapon kapcsolható be). A kulcsokat a böngésző a futtató nyilvános kulcsával titkosítja; ehhez https kell (a WebCrypto csak biztonságos kapcsolaton működik), http-n csak a többi beállítás menthető. Minden változás a futtató Napló részébe kerül, és értesítés megy róla, ha van értesítési csatorna.
+4. **Frissítés most**: ha a szerveres futtató újabb változatot lát a GitHubon, a kártyán megjelenik a gomb; a futtató két munka között frissít, és újraindul (aláírás-ellenőrzés még nincs, terv 18.16).
+
 ## Frissítés a 0.15.1-re (visszavont futtatók elrejtve)
 
 Csak a felület: a Futtatók oldal nem listázza a visszavont futtatókat. Az adatbázisban megmaradnak, mert a régi munkák hivatkoznak rájuk. A fenti frissítés elég.

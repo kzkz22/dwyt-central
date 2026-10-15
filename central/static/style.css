@@ -584,3 +584,41 @@ select { max-width: 100%; }
 .machine-captions { margin-top: 10px; padding-top: 10px; border-top: 1px dashed hsl(var(--border)); width: 100%; }
 
 .runner-actions { display: inline-flex; gap: .5rem; flex-wrap: wrap; margin-left: auto; }
+
+/* Runner install command and remote settings (round 7d) */
+.cmd { display: flex; gap: 8px; align-items: stretch; flex-wrap: wrap; margin: 8px 0; }
+.cmd code { flex: 1 1 280px; display: block; padding: 10px 12px; border-radius: var(--radius); background: hsl(var(--muted));
+  font-size: .88rem; word-break: break-all; user-select: all; }
+.modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin: 6px 0 2px; }
+.modes button { text-align: left; border: 1px solid hsl(var(--border)); border-radius: 10px; padding: 10px 12px; display: flex;
+  flex-direction: column; gap: 3px; background: hsl(var(--card)); color: hsl(var(--foreground)); font-weight: 400; min-height: 0; }
+.modes button.on { border: 2px solid hsl(var(--primary)); background: hsl(var(--primary) / .06); }
+.rs-field { display: grid; grid-template-columns: minmax(180px, 260px) 1fr; gap: 6px 16px; padding: 11px 0;
+  border-top: 1px solid hsl(var(--border)); align-items: start; }
+.rs-field:first-of-type { border-top: 0; }
+.rs-field .lbl { font-weight: 600; }
+.rs-field .help { grid-column: 2; color: hsl(var(--muted-foreground)); font-size: .85rem; margin: 0; }
+.rs-field.off { opacity: .65; }
+.rs-field.hidden { display: none; }
+.rs-field input[type=text], .rs-field input[type=password], .rs-field select, .rs-field textarea { width: 100%; max-width: 440px; }
+.secret { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.secret input[type=password] { flex: 1 1 200px; }
+.lock { font-size: .85rem; color: hsl(var(--muted-foreground)); }
+.savebar { position: sticky; bottom: 0; display: flex; gap: 12px; align-items: center; justify-content: flex-end; padding: 12px 0;
+  background: hsl(var(--background)); border-top: 1px solid hsl(var(--border)); flex-wrap: wrap; }
+.state { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 0 0 12px; }
+.log { width: 100%; border-collapse: collapse; }
+.log td, .log th { padding: 8px 10px; text-align: left; vertical-align: top; }
+.log tr + tr td { border-top: 1px solid hsl(var(--border)); }
+.spin { display: inline-block; width: .9rem; height: .9rem; border: 2px solid hsl(var(--border)); border-top-color: hsl(var(--primary));
+  border-radius: 50%; animation: spin 1s linear infinite; vertical-align: -0.15em; margin-right: 6px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (max-width: 640px) {
+  .rs-field { grid-template-columns: 1fr; }
+  .rs-field .help { grid-column: 1; }
+  .log thead { display: none; }
+  .log tr { display: block; padding: 8px 0; }
+  .log td { display: block; padding: 2px 0; }
+  .log tr + tr td { border-top: 0; }
+  .log tr + tr { border-top: 1px solid hsl(var(--border)); }
+}

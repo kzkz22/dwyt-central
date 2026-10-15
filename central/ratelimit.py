@@ -21,6 +21,9 @@ LIMITS = {
     "mcp-bad-token": (20, 300),   # wrong MCP tokens per address
     "ask": (60, 3600),            # questions per user (each one is a job for his runner)
     "share": (30, 3600),          # runner share offers per user (each one looks up an e-mail address)
+    "install-redeem": (20, 600),  # install codes tried per address (8 characters, 5 minutes, single use)
+    "install-code": (20, 3600),   # install commands asked for per user
+    "runner-settings": (60, 3600),  # remote settings saves per user
 }
 
 _hits: dict[tuple[str, str], deque[float]] = {}

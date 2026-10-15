@@ -135,16 +135,36 @@
 {% endmacro %}
 
 {% macro pairing() %}
-<section class="card">
-  <h2>Új futtató párosítása</h2>
+{% set active = tab or ('kod' if prefill_code else 'szerver') %}
+<section class="card" id="uj">
+  <h2>Új futtató</h2>
+  <nav class="views" aria-label="Telepítés módja">
+    <a href="/futtatok?ful=szerver#uj" class="{{ 'active' if active == 'szerver' }}">Szerverre (Linux)</a>
+    <a href="/futtatok?ful=asztali#uj" class="{{ 'active' if active == 'asztali' }}">Asztali gépre</a>
+    <a href="/futtatok?ful=kod#uj" class="{{ 'active' if active == 'kod' }}">Párosítás kóddal</a>
+  </nav>
+  {% if active == 'szerver' %}
+  <p>Egy paranccsal telepíti a futtatót egy Linux szerverre (VPS, LXC, NAS), szolgáltatásként elindítja, és ehhez a fiókhoz párosítja; jóváhagyni nem kell. Utána minden beállítás innen, a <strong>Beállítás</strong> gombbal megy, a kulcsokat a böngésződ titkosítja a futtató saját kulcsával.</p>
+  {% if install_command %}
+  <div class="cmd"><code>{{ install_command }}</code><button type="button" class="small" data-copy="{{ install_command }}">Másolás</button></div>
+  <p class="muted">A parancs {{ install_minutes }} percig érvényes, és egyszer használható. Futtathatod rendszergazdaként (akkor külön <code>dwyt-runner</code> felhasználóval fut) vagy a saját felhasználóddal (rendszergazdai jog nélkül).</p>
+  {% else %}
+  <form method="post" action="/futtatok/telepitokod" class="inline"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button>Telepítőparancs kérése</button></form>
+  <p class="muted">A parancs {{ install_minutes }} percig érvényes, és egyszer használható.</p>
+  {% endif %}
+  <p class="muted">Mit csinál pontosan? <a href="/futtato.sh" target="_blank" rel="noopener">A telepítő szövege</a> (érdemes elolvasni, mielőtt futtatod).</p>
+  {% elif active == 'asztali' %}
+  <p>Windowsra és Linuxra asztali alkalmazás: saját ablak, tálcaikon, a telepítő lépései végigvezetnek a beállításon és a párosításon. A telepítőcsomag később jön; addig így telepíthető:</p>
+  <ol>
+    <li>Az uv: <a href="https://docs.astral.sh/uv/getting-started/installation/" target="_blank" rel="noopener">telepítési útmutató</a> (rendszergazdai jog nélkül).</li>
+    <li><code>uv tool install --python 3.13 "dwyt-runner[desktop,local] @ https://github.com/kzkz22/dwyt-runner/archive/refs/heads/main.zip"</code></li>
+    <li><code>dwyt-runner app</code> – az ablak a párosításnál ide hoz vissza, kitöltött kóddal.</li>
+  </ol>
+  {% else %}
   {% if prefill_code %}
   <p class="warn-box">A futtatód kérte ezt a párosítást. <strong>Csak akkor hagyd jóvá, ha a saját gépeden, a futtató ablakában most ugyanez a kód látszik: {{ prefill_code }}</strong>. Ha valaki más küldte neked ezt a linket, ne nyomd meg a gombot: az ő gépe kapná meg a munkáidat.</p>
   {% else %}
-  <ol>
-    <li>Telepítés: <code>uv tool install git+https://github.com/kzkz22/dwyt-runner</code></li>
-    <li>Párosítás: <code>dwyt-runner pair {{ base_url }}</code> – a futtató kiír egy kódot.</li>
-    <li>Írd be ide a kódot, és adj nevet a futtatónak:</li>
-  </ol>
+  <p>Egy már telepített futtatóhoz (az asztali alkalmazás párosítás lépése, vagy a <code>dwyt-runner pair {{ base_url }}</code> parancs): írd be a futtató által mutatott kódot, és adj nevet a futtatónak.</p>
   {% endif %}
   <form method="post" action="/futtatok/parositas" class="grid">
     <input type="hidden" name="csrf_token" value="{{ csrf }}">
@@ -152,6 +172,7 @@
     <label>Név <input name="name" placeholder="otthoni gép" maxlength="80" value="{{ prefill_name or '' }}"></label>
     <p><button{% if prefill_code %} autofocus{% endif %}>Jóváhagyás</button></p>
   </form>
+  {% endif %}
 </section>
 {% endmacro %}
 
@@ -167,7 +188,7 @@
 </section>
 {% endfor %}
 
-{% if prefill_code or (not runners and not shared) %}{{ pairing() }}{% endif %}
+{% if prefill_code or install_command or tab or (not runners and not shared) %}{{ pairing() }}{% endif %}
 
 <h2>Párosított futtatók</h2>
 {% if runners or shared %}<p class="muted">A munkát az a bekapcsolt futtató kapja, amelyik először kér, és tudja a feladatot. A <strong>Kikapcsolás</strong> után a futtató nem kap tőled új munkát, de párosítva marad (a megosztott is); amit már elkezdett, befejezi.</p>{% endif %}
@@ -176,11 +197,15 @@
 {% set caps = r.capabilities or {} %}
 <section class="card runner{{ ' inactive' if r.revoked_at or r.paused_at }}">
   <div class="bar"><span class="runner-name"><strong>{{ r.name }}</strong>
-    {% if r.revoked_at %}<span class="badge">visszavonva</span>{% elif r.paused_at %}<span class="badge">kikapcsolva</span>{% elif r.id in online %}<span class="badge own">elérhető</span>{% else %}<span class="badge warn">nem jelentkezik</span>{% endif %}</span>
-    <span class="runner-actions">{% if not r.revoked_at %}<form method="post" action="/futtatok/{{ r.id }}/kikapcsolas" class="inline" title="{{ 'Újra kaphat munkát' if r.paused_at else 'Nem kap új munkát, de párosítva marad; amit már elkezdett, befejezi' }}"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="ki" value="{{ '0' if r.paused_at else '1' }}"><button class="{{ '' if r.paused_at else 'secondary ' }}small">{{ 'Bekapcsolás' if r.paused_at else 'Kikapcsolás' }}</button></form>{% endif %}
+    {% if r.revoked_at %}<span class="badge">visszavonva</span>{% elif r.paused_at %}<span class="badge">kikapcsolva</span>{% elif r.id in online %}<span class="badge own">elérhető</span>{% else %}<span class="badge warn">nem jelentkezik</span>{% endif %}
+    {% if r.remote_settings %}<span class="badge cloud">a dwyt-ből állítható</span>{% endif %}</span>
+    <span class="runner-actions">{% if r.remote_settings %}<a class="button small" href="/futtatok/{{ r.id }}/beallitas">Beállítás</a>{% elif r.install == "app" %}<button class="small" disabled title="A futtató ablakában kapcsolható be: Működés → A dwyt-ből is állítható">Beállítás</button>{% endif %}
+    {% if not r.revoked_at %}<form method="post" action="/futtatok/{{ r.id }}/kikapcsolas" class="inline" title="{{ 'Újra kaphat munkát' if r.paused_at else 'Nem kap új munkát, de párosítva marad; amit már elkezdett, befejezi' }}"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="ki" value="{{ '0' if r.paused_at else '1' }}"><button class="{{ '' if r.paused_at else 'secondary ' }}small">{{ 'Bekapcsolás' if r.paused_at else 'Kikapcsolás' }}</button></form>{% endif %}
     {% if not r.revoked_at %}<form method="post" action="/futtatok/{{ r.id }}/visszavonas" class="inline confirm" data-confirm="Visszavonod ezt a futtatót? Utána újra párosítani kell."><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="danger small">Visszavonás</button></form>{% endif %}</span></div>
   <div class="meta">
-    {% if r.version %}dwyt-runner {{ r.version }}{% if r.protocol and r.protocol != protocol %} (régi protokoll){% endif %} · {% endif %}utoljára: {{ r.last_seen_at|local if r.last_seen_at else 'még soha' }}
+    {% if r.version %}dwyt-runner {{ r.version }}{% if r.protocol and r.protocol != protocol %} (régi protokoll){% endif %} · {% endif %}
+    {% if r.id in can_update %}<strong>újabb van: {{ r.latest_version }}</strong> <form method="post" action="/futtatok/{{ r.id }}/frissites" class="inline"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="small">Frissítés most</button></form> · {% endif %}
+    {% if r.install == "app" %}asztali alkalmazás{% if not r.remote_settings %} (a beállítás a gép ablakában történik){% endif %} · {% elif r.install == "service" %}szerver · {% endif %}utoljára: {{ r.last_seen_at|local if r.last_seen_at else 'még soha' }}
     {% if caps.llm_server %} · LLM-szerver: {{ caps.llm_server }}{% endif %}
   </div>
   {% if not r.revoked_at and caps %}
@@ -194,7 +219,7 @@
 
   <h3 class="runner-h">{{ icon("sparkles", 16) }} Nyelvi modellek</h3>
   {{ model_table(r, caps) }}
-  {% if caps.llm_roles and 'llm_model_info' not in caps %}<p class="warn-box">Ez a futtató régebbi{% if r.version %} ({{ r.version }}){% endif %}: nem küld modell-leírást{% if 'ask' not in (caps.kinds or []) %}, és kérdésekre sem tud válaszolni{% endif %}. Frissítés: <code>uv tool install --force git+https://github.com/kzkz22/dwyt-runner</code>, majd a futtató újraindítása.</p>{% endif %}
+  {% if caps.llm_roles and 'llm_model_info' not in caps %}<p class="warn-box">Ez a futtató régebbi{% if r.version %} ({{ r.version }}){% endif %}: nem küld modell-leírást{% if 'ask' not in (caps.kinds or []) %}, és kérdésekre sem tud válaszolni{% endif %}. Frissítés: <code>uv tool install --force --refresh --python 3.13 https://github.com/kzkz22/dwyt-runner/archive/refs/heads/main.zip</code>, majd a futtató újraindítása.</p>{% endif %}
   {% endif %}
   {% if not r.revoked_at %}{{ share_table(r) }}{% endif %}
 </section>
@@ -219,5 +244,5 @@
 {% endfor %}
 {% endif %}
 
-{% if (runners or shared) and not prefill_code %}{{ pairing() }}{% endif %}
+{% if (runners or shared) and not (prefill_code or install_command or tab) %}{{ pairing() }}{% endif %}
 {% endblock %}
