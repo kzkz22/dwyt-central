@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block title %}Megosztás{% endblock %}
+{% block content %}
+{# 19.2: what a share from the phone opens when the user chose "ask" in the settings. The heading stays above the
+   card (not beside it). #}
+<h1>Összefoglaló kérése</h1>
+{% for e in errors %}<p class="error" role="alert">{{ e }}</p>{% endfor %}
+<section class="card share">
+  <p class="muted">Megosztottad:</p>
+  <div class="share-what">
+    {% if ref.video_id %}<img class="share-thumb" src="https://i.ytimg.com/vi/{{ ref.video_id }}/mqdefault.jpg" alt="" referrerpolicy="no-referrer">{% endif %}
+    <div>
+      {% if shown_title %}<span class="title">{{ shown_title }}</span>{% endif %}
+      <div class="meta">{{ 'YouTube-videó' if ref.kind == 'youtube' else 'Weboldal' }} · <a href="{{ ref.url }}" rel="noopener noreferrer" target="_blank">{{ ref.url }}</a></div>
+    </div>
+  </div>
+  <form method="post" action="/megosztas" class="stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <input type="hidden" name="url" value="{{ ref.url }}"><input type="hidden" name="cim" value="{{ shown_title }}">
+    <label>Átírás
+      <select name="mode">{% for key, label in modes.items() %}{% if key != 'captions' or ref.kind == 'youtube' %}<option value="{{ key }}" {% if key == mode %}selected{% endif %}>{{ label }}</option>{% endif %}{% endfor %}</select></label>
+    <label class="choice"><input type="checkbox" name="summarize" checked> Összefoglaló</label>
+    {% if ref.kind == 'youtube' %}
+    <label class="choice"><input type="checkbox" name="megnezendo"> Megnézendő is (a YouTube-fiókodban)</label>
+    {% if not watch_ready %}<p class="muted">Az első Megnézendőnél a Google-nál engedélyezned kell, hogy a dwyt egy <em>dwyt – megnézendő</em> lejátszási listát kezeljen a YouTube-fiókodban.</p>{% endif %}
+    {% endif %}
+    <p><button>{{ icon("sparkles", 15) }}Kérem</button></p>
+    <p class="muted">A beszélők, a nyelv és a modell az <a href="/uj">Új átirat</a> oldalon állítható. Hogy a megosztás rögtön induljon-e, a <a href="/beallitasok#megosztas">Beállításokban</a> választhatod meg.</p>
+  </form>
+</section>
+{% endblock %}

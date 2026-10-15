@@ -627,3 +627,33 @@ select { max-width: 100%; }
   .log tr + tr td { border-top: 0; }
   .log tr + tr { border-top: 1px solid hsl(var(--border)); }
 }
+
+/* ---- round 8: Megnézendő, read marks, inbox decisions, sharing (19.1–19.4) ---- */
+.icon.filled { fill: currentColor; }
+button.on, .button.on { background: hsl(var(--primary) / .1); color: hsl(var(--primary)); border: 1px solid hsl(var(--primary) / .5); }
+button.on:hover { background: hsl(var(--primary) / .16); }
+.unread-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: hsl(var(--primary));
+  margin-right: 6px; vertical-align: .1em; }
+.item.read .title { font-weight: 500; color: hsl(var(--muted-foreground)); }
+.item.focus { outline: 2px solid hsl(var(--primary)); outline-offset: -2px; border-radius: 8px; }
+.item.media { align-items: flex-start; }
+.item > .side-toggle { flex-shrink: 0; margin-left: auto; }
+.desc { margin: 6px 0 0; font-size: .85rem; color: hsl(var(--muted-foreground)); display: -webkit-box; -webkit-line-clamp: 2;
+  line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.desc b { color: hsl(var(--foreground)); font-weight: 600; }
+.keys { display: flex; gap: 6px 14px; flex-wrap: wrap; align-items: center; font-size: .8rem; color: hsl(var(--muted-foreground));
+  margin: -4px 0 12px; }
+.keys kbd { display: inline-block; min-width: 1.4em; text-align: center; padding: 1px 6px; border: 1px solid hsl(var(--border));
+  border-bottom-width: 2px; border-radius: 5px; background: hsl(var(--card)); font: 600 .75rem/1.4 ui-monospace, monospace; }
+@media (hover: none) { .keys { display: none; } }
+.consent-hint { font-size: .85rem; margin: 8px 0 0; }
+.share-what { display: flex; gap: 14px; align-items: flex-start; margin: 4px 0 12px; }
+.share-what > div { min-width: 0; }
+.share-what .title { font-weight: 600; display: block; overflow-wrap: anywhere; }
+.share-what .meta a { overflow-wrap: anywhere; }
+.share-thumb { width: 168px; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 6px; flex-shrink: 0; background: hsl(var(--muted)); }
+@media (max-width: 600px) {
+  .item.media > .side-toggle { grid-column: 1 / -1; justify-self: end; margin: 0; }
+  .share-what { flex-direction: column; }
+  .share-thumb { width: 100%; max-width: 320px; }
+}

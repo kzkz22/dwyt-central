@@ -11,7 +11,7 @@ import time
 
 import uvicorn
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 
 def free_port() -> int:
@@ -58,6 +58,8 @@ class FakeGoogle:
             if entry.get("refresh_token"):
                 answer["refresh_token"] = entry["refresh_token"]
                 fake.refresh_tokens.add(entry["refresh_token"])
+                if "auth/youtube " in answer["scope"] + " ":
+                    fake.writers.add(entry["refresh_token"])
             return answer
 
         @app.post("/revoke")
@@ -87,10 +89,75 @@ class FakeGoogle:
                 body["nextPageToken"] = str(start + 2)
             return body
 
+        def _who(request: Request) -> str | None:
+            token = request.headers.get("authorization", "").removeprefix("Bearer at-")
+            return token if token in fake.refresh_tokens else None
+
+        @app.get("/youtube/v3/playlists")
+        async def playlists(request: Request):
+            token = _who(request)
+            if token is None:
+                return JSONResponse({"error": "unauthorized"}, status_code=401)
+            mine = fake.playlists.get(token, {})
+            return {"items": [{"id": pid, "snippet": {"title": t}} for pid, t in mine.items()]}
+
+        @app.post("/youtube/v3/playlists")
+        async def create_playlist(request: Request):
+            token = _who(request)
+            if token is None or token not in fake.writers:
+                return JSONResponse({"error": "forbidden"}, status_code=403)
+            body = await request.json()
+            pid = f"PL{len(fake.items) + 1:04d}"
+            fake.playlists.setdefault(token, {})[pid] = body["snippet"]["title"]
+            fake.privacy[pid] = (body.get("status") or {}).get("privacyStatus")
+            fake.items[pid] = []
+            return {"id": pid}
+
+        @app.get("/youtube/v3/playlistItems")
+        async def playlist_items(request: Request, playlistId: str):
+            if _who(request) is None:
+                return JSONResponse({"error": "unauthorized"}, status_code=401)
+            if playlistId not in fake.items:
+                return JSONResponse({"error": "playlistNotFound"}, status_code=404)
+            return {"items": [{"id": iid, "snippet": {"title": t, "resourceId": {"videoId": v}}}
+                              for iid, v, t in fake.items[playlistId]]}
+
+        @app.post("/youtube/v3/playlistItems")
+        async def add_item(request: Request):
+            token = _who(request)
+            if token is None or token not in fake.writers:
+                return JSONResponse({"error": "forbidden"}, status_code=403)
+            sn = (await request.json())["snippet"]
+            if sn["playlistId"] not in fake.items:
+                return JSONResponse({"error": "playlistNotFound"}, status_code=404)
+            fake.item_seq += 1
+            iid = f"PLI{fake.item_seq}"
+            fake.items[sn["playlistId"]].append((iid, sn["resourceId"]["videoId"], "YouTube-cím"))
+            return {"id": iid, "snippet": {"title": "YouTube-cím"}}
+
+        @app.delete("/youtube/v3/playlistItems")
+        async def delete_item(request: Request, id: str):
+            token = _who(request)
+            if token is None or token not in fake.writers:
+                return JSONResponse({"error": "forbidden"}, status_code=403)
+            for rows in fake.items.values():
+                for row in rows:
+                    if row[0] == id:
+                        rows.remove(row)
+                        fake.deleted.append(id)
+                        return Response(status_code=204)
+            return JSONResponse({"error": "playlistItemNotFound"}, status_code=404)
+
         self.app = app
         self._server: uvicorn.Server | None = None
 
     def reset(self) -> None:
+        self.playlists: dict[str, dict[str, str]] = {}   # refresh token -> playlist id -> title
+        self.items: dict[str, list[tuple[str, str, str]]] = {}  # playlist id -> (item id, video id, title)
+        self.privacy: dict[str, str | None] = {}
+        self.writers: set[str] = set()  # refresh tokens whose consent covers the write scope
+        self.deleted: list[str] = []
+        self.item_seq = 0
         self.codes: dict[str, dict] = {}
         self.calls = 0
         self.refresh_tokens: set[str] = set()
@@ -184,10 +251,12 @@ class FakeYoutube:
             if channel_id not in fake.feeds:
                 return Response(status_code=404)
             entries = "".join(
-                f"<entry><yt:videoId>{vid}</yt:videoId><title>{title}</title><published>{when}</published></entry>"
-                for vid, title, when in fake.feeds[channel_id])
+                f"<entry><yt:videoId>{row[0]}</yt:videoId><title>{row[1]}</title><published>{row[2]}</published>"
+                + (f"<media:group><media:description>{row[3]}</media:description></media:group>" if len(row) > 3
+                   else "") + "</entry>"
+                for row in fake.feeds[channel_id])
             xml = ('<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom" '
-                   'xmlns:yt="http://www.youtube.com/xml/schemas/2015">'
+                   'xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns:media="http://search.yahoo.com/mrss/">'
                    f"<title>{fake.titles.get(channel_id, 'Csatorna')}</title>{entries}</feed>")
             return Response(xml, media_type="application/atom+xml")
 

@@ -93,6 +93,13 @@ Egyszeri lépések, a fenti frissítés **előtt**:
 3. A téma (világos / sötét) és a becsukott menü böngészőnként tárolódik; először a rendszer témáját követi.
 4. Ha az Apache-on saját `Content-Security-Policy` fejlécet állítottál be, abban is maradjon `default-src 'self'` (a betűtípus és az ikonok a központról jönnek, külső címről semmi).
 
+## Frissítés a 0.17-re (8. kör: Megnézendő, megosztás telefonról, olvasott jelölés, gyors döntés a Postaládában)
+
+1. A fenti frissítés; az adatbázis-migráció (0017) magától lefut. A meglévő elemek olvasottként indulnak, így a Könyvtárban csak az ezután elkészülők kapnak „olvasatlan” pöttyöt.
+2. **Megnézendő-lista** (a YouTube-fiókban egy „dwyt – megnézendő” lejátszási lista): a Google Cloud Console-ban **Google Auth Platform → Data Access → Add or remove scopes:** add hozzá a `https://www.googleapis.com/auth/youtube` jogot (a `youtube.readonly` mellé) → Update → Save. Enélkül a Google az engedélykérésnél hibát ad. Ez is „érzékeny” jogosultság, ugyanazzal az „unverified app” figyelmeztetéssel. A `TOKEN_KEY` és a YouTube Data API ugyanaz, mint a feliratkozásoknál. A felhasználók az első Megnézendő gombnál egyszer engedélyezik; aki eddig nem kapcsolta össze a fiókját, annak a feliratkozásait ez nem veszi át.
+3. **Megosztás telefonról:** HTTPS kell hozzá (a meglévő Apache-beállítás jó). A telefon böngészőjében a dwyt menüjéből: „Telepítés” vagy „Hozzáadás a kezdőképernyőhöz”; ezután a YouTube-alkalmazás Megosztás menüjében megjelenik a dwyt. Androidon a Chrome így működik; iPhone-on a Safari webalkalmazása nem lehet megosztási cél, ott a link a dwyt Új átirat oldalára másolható. Hogy a megosztás egy oldalt nyisson vagy rögtön induljon, a Beállításokban választható. Ha az Apache-on saját `Content-Security-Policy` fejléc van, a `manifest.webmanifest` és a `sw.js` a központról jön (`default-src 'self'` elég).
+4. A futtatókat nem kell frissíteni.
+
 ## Frissítés a 0.16.4-re (futó munka közben is elérhető futtató, újraindult futtató munkái)
 
 1. A fenti frissítés; migráció nincs.

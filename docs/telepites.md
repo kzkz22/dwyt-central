@@ -175,10 +175,10 @@ Saját Google Cloud-projekt kell; a régi `yt-webui` projektet nem érdemes hasz
 
 ### YouTube-feliratkozások (nem kötelező)
 
-A Csatornák oldalon a felhasználó összekapcsolhatja a YouTube-fiókját; a központ ekkor naponta kiolvassa a feliratkozás-listáját (csak olvasási jog: `youtube.readonly`). Enélkül is működik a feliratkozás Takeout-fájlból és kézzel.
+A Csatornák oldalon a felhasználó összekapcsolhatja a YouTube-fiókját; a központ ekkor naponta kiolvassa a feliratkozás-listáját (csak olvasási jog: `youtube.readonly`). Enélkül is működik a feliratkozás Takeout-fájlból és kézzel. Ugyanez a beállítás kell a Megnézendő gombhoz: az a felhasználó YouTube-fiókjában egy „dwyt – megnézendő” lejátszási listát kezel, ehhez írási jog is kell (`youtube`), amit a felhasználó az első Megnézendő gombnál külön engedélyez.
 
 1. **APIs & Services → Library:** „YouTube Data API v3” → **Enable**.
-2. **Google Auth Platform → Data Access → Add or remove scopes:** `https://www.googleapis.com/auth/youtube.readonly` → Update → Save. Ez „érzékeny” jogosultság: ellenőrzés nélkül az összekapcsoláskor a Google „unverified app” figyelmeztetést mutat (Speciális → Tovább), és legfeljebb 100 felhasználó kapcsolhat össze. Az alkalmazás maradjon **In production** állapotban, mert „Testing” állapotban a hozzáférés 7 nap után lejár.
+2. **Google Auth Platform → Data Access → Add or remove scopes:** `https://www.googleapis.com/auth/youtube.readonly` és (a Megnézendő listához) `https://www.googleapis.com/auth/youtube` → Update → Save. Ez „érzékeny” jogosultság: ellenőrzés nélkül az összekapcsoláskor a Google „unverified app” figyelmeztetést mutat (Speciális → Tovább), és legfeljebb 100 felhasználó kapcsolhat össze. Az alkalmazás maradjon **In production** állapotban, mert „Testing” állapotban a hozzáférés 7 nap után lejár.
 3. Titkosítókulcs a tárolt hozzáférésekhez, a `central.env`-be:
 
    ```bash

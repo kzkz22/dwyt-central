@@ -6,7 +6,7 @@ per-user libraries (strictly separated; PostgreSQL row-level security as a secon
 with per-user tokens. It never holds users' API keys and never calls a runner: runners connect out
 (HTTPS long-poll) and claim jobs by their declared capabilities.
 
-Status: rounds 1–6 implemented (sign-in, invitations, RLS library, runner protocol, captions/cloud/local
+Status: rounds 1–8 implemented (sign-in, invitations, RLS library, runner protocol, captions/cloud/local
 transcription, summary and translate jobs; search: `indexing.py` shared chunks + indexer thread in the web process,
 `search.py` FTS + pg_trgm + pgvector fused by RRF, `embedder.py` = separate `dwyt-central-embed` service;
 `reuse.py`: shareable results taken over at submit; `ownfiles.py`: browser uploads staged until the runner
@@ -54,7 +54,17 @@ subscriptions.captions_policy override (migration 0014), per-submission `machine
 `job.payload.captions_policy` (not in options: recipes stay shared); `jobs.store_result` refuses a machine-captions
 result the rule does not accept (`fail(..., "next_step")`: subscription chain moves on, a submission fails with a
 message); `reuse.find` takes over captions only if accepted; `web._silent_note` (runner silent > 1 h, jobs waiting).
-0.15 (decision 18.14): runners.paused_at (owner) / runner_shares.paused_at (the share's user), migration 0015; `sharing.set_switched_off`, `usable_runners` / `shared_with(switched_off=False)` / `claim_caps` / `own_runner_can` / `jobs.claim` skip switched-off ones; `_silent_note` says when all are off. 0.16 (round 7d, decisions 18.11, 18.16, 18.17): `remote.py` — install codes (5 min, single use, no approval; `/runner/v1/pair/redeem`, `?format=env` for the sh installer `central/install/futtato.sh` served at `/futtato.sh`), settings reports (`PUT /runner/v1/settings`: describe + plain values as text + secrets_set + public key; stored in runners.settings, migration 0016), changes (`runner_setting_changes`: owner's changes with ciphertexts dropped after the result, `origin='runner'` rows for changes made on the machine), `Dwyt-Settings: pending` on claim (no long wait), `GET /settings/changes` marks delivered (10 min to answer), result endpoint; Beállítás page `runner_settings.html` drawn from the runner's describe, `static/remote.js` (show_if, modes, RSA-OAEP-256 WebCrypto encryption: plain key inputs have no name), log, notifications kind 'runner'; Frissítés most = action update (only install=service). Open: passkeys (not needed for now).
+0.15 (decision 18.14): runners.paused_at (owner) / runner_shares.paused_at (the share's user), migration 0015; `sharing.set_switched_off`, `usable_runners` / `shared_with(switched_off=False)` / `claim_caps` / `own_runner_can` / `jobs.claim` skip switched-off ones; `_silent_note` says when all are off. 0.16 (round 7d, decisions 18.11, 18.16, 18.17): `remote.py` — install codes (5 min, single use, no approval; `/runner/v1/pair/redeem`, `?format=env` for the sh installer `central/install/futtato.sh` served at `/futtato.sh`), settings reports (`PUT /runner/v1/settings`: describe + plain values as text + secrets_set + public key; stored in runners.settings, migration 0016), changes (`runner_setting_changes`: owner's changes with ciphertexts dropped after the result, `origin='runner'` rows for changes made on the machine), `Dwyt-Settings: pending` on claim (no long wait), `GET /settings/changes` marks delivered (10 min to answer), result endpoint; Beállítás page `runner_settings.html` drawn from the runner's describe, `static/remote.js` (show_if, modes, RSA-OAEP-256 WebCrypto encryption: plain key inputs have no name), log, notifications kind 'runner'; Frissítés most = action update (only install=service). 0.17 (round 8, decisions 19.1–19.5): `watchlater.py` — the Megnézendő list as the user's private "dwyt – megnézendő" YouTube
+playlist (write scope `youtube` asked by the first press: LoginState purpose "youtube-write", the `dwyt_watch` cookie
+finishes the add after the callback; `youtube_links.can_write` / `watch_playlist_id` / `subs_sync` (false = connected
+only for the list, subscriptions not taken over); table `watch_later` keeps playlist item ids; daily sync in
+`subscriptions.sync_google` takes over YouTube-side changes; unlink drops the copy); `items.read_at` (opening the item
+page reads it once there is something to read; `POST /elem/{id}/olvasott`; Library filters olvasatlan / megnezendo);
+inbox Új shows `channel_videos.description` (feed media:description), Kész the summary preview and hides read items
+unless `mind=1`; keyboard in app.js (`ul[data-keys]`, buttons with `data-key`); sharing from the phone:
+`/manifest.webmanifest` (share_target GET /megosztas), `/sw.js` (caches nothing), `users.share_mode` ask | start (start
+only with Sec-Fetch-Site none/same-origin), `share.html`, a signed-out share continues after sign-in (`dwyt_after`
+cookie). Open: passkeys (not needed for now).
 Source of truth: `dwyt-docs` (`docs/terv.md`, `docs/protokoll.md`). Install: `docs/telepites.md`; tests need PostgreSQL
 (throw-away cluster from tests/pgcluster.py, or TEST_DATABASE_URL as superuser).
 License: AGPL-3.0.

@@ -33,14 +33,14 @@ from starlette.concurrency import run_in_threadpool
 
 from . import (accounts, captionpolicy, chat, db, export, indexing, items, jobs, library, mailer, mcp_server,
                modelinfo, notify, ownfiles, personal, protocol, ratelimit, remote, render, search, secretbox, security,
-               sources, subscriptions, sharing, youtube)
+               sources, subscriptions, sharing, watchlater, youtube)
 from . import submit as submit_mod
 from .submit import CLOUD_MODELS, LOCAL_MODELS, MODES, parse_options
 from .config import Settings, get_settings
 from .db import utcnow
-from .models import (ACTIVE, Channel, Conversation, ConversationMessage, InboxEntry, Invite, Item, ItemSummary, ItemTag,
-                     ItemTranscript, ItemTranslation, Job, LoginState, Runner, Session, Source, Subscription, Summary,
-                     Transcript, Translation, Upload, User)
+from .models import (ACTIVE, Channel, ChannelVideo, Conversation, ConversationMessage, InboxEntry, Invite, Item,
+                     ItemSummary, ItemTag, ItemTranscript, ItemTranslation, Job, LoginState, Runner, Session, Source,
+                     Subscription, Summary, Transcript, Translation, Upload, User)
 
 log = logging.getLogger("dwyt")
 HERE = Path(__file__).resolve().parent
@@ -71,6 +71,19 @@ def favicon() -> FileResponse:
     """Browsers and feed readers ask for this without reading the page's <link rel="icon">."""
     return FileResponse(HERE / "static" / "favicon-32.png", media_type="image/png",
                         headers={"Cache-Control": "public, max-age=604800"})
+
+
+@app.get("/manifest.webmanifest", include_in_schema=False)
+def manifest() -> FileResponse:
+    """The installable web app (19.2): its share target sends shared links to /megosztas."""
+    return FileResponse(HERE / "static" / "manifest.webmanifest", media_type="application/manifest+json",
+                        headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/sw.js", include_in_schema=False)
+def service_worker() -> FileResponse:
+    """Served from the root so its scope is the whole site."""
+    return FileResponse(HERE / "static" / "sw.js", media_type="text/javascript", headers={"Cache-Control": "no-cache"})
 
 
 app.include_router(protocol.router)
@@ -152,11 +165,27 @@ class Forbidden(Exception):
     pass
 
 
+AFTER_COOKIE = "dwyt_after"  # a shared link that arrived while signed out: opened after the sign-in (19.2)
+AFTER_PATHS = ("/megosztas",)
+
+
 @app.exception_handler(LoginRequired)
 async def _login_required(request: Request, _exc):
     if request.headers.get("HX-Request"):
         return Response(status_code=200, headers={"HX-Redirect": "/belepes"})
-    return RedirectResponse("/belepes", status_code=303)
+    response = RedirectResponse("/belepes", status_code=303)
+    if request.method == "GET" and request.url.path in AFTER_PATHS:
+        response.set_cookie(AFTER_COOKIE, _local_back(request)[:1500], max_age=1800, httponly=True, samesite="lax",
+                            secure=get_settings().cookie_secure, path="/")
+    return response
+
+
+def _after_login(request: Request) -> Response:
+    """Where a finished sign-in goes: the page that asked for it (a share), else the library."""
+    after = _safe_back(request.cookies.get(AFTER_COOKIE), "/")
+    response = _redirect(after if after.startswith(AFTER_PATHS) else "/")
+    response.delete_cookie(AFTER_COOKIE, path="/")
+    return response
 
 
 @app.exception_handler(BadCsrf)
@@ -356,7 +385,7 @@ async def google_callback(request: Request, state: str = "", code: str = "", err
         with db.system_session() as s:
             pending = s.get(LoginState, security.token_hash(state)) if len(state) < 200 else None
             purpose = pending.purpose if pending is not None else "login"
-        if purpose == "youtube":
+        if purpose in ("youtube", "youtube-write"):
             return await _youtube_callback(request, state, code)
 
     def sign_in() -> str:
@@ -384,7 +413,7 @@ async def google_callback(request: Request, state: str = "", code: str = "", err
         response = _message(request, None, "A belépés nem sikerült", str(exc), "/belepes", 403)
         response.delete_cookie(LOGIN_COOKIE, path="/auth/google")
         return response
-    response = _redirect(nxt)
+    response = _after_login(request) if nxt == "/" else _redirect(nxt)
     response.delete_cookie(LOGIN_COOKIE, path="/auth/google")
     _set_cookie(response, token, settings,
                 security.PENDING_MINUTES * 60 if nxt != "/" else int(settings.session_days * 86400))
@@ -401,15 +430,29 @@ async def _youtube_callback(request: Request, state: str, code: str):
             login = accounts.consume_state(s, state)
         if login.user_id != viewer.id:
             raise youtube.YoutubeError("Az összekapcsolást ugyanazzal a fiókkal kell befejezni, amelyikkel elkezdted.")
-        refresh_token, email = youtube.connect_finish(login, settings, code)
-        subscriptions.save_link(viewer.id, refresh_token, email)
+        refresh_token, email, can_write = youtube.connect_finish(login, settings, code)
+        subscriptions.save_link(viewer.id, refresh_token, email, can_write,
+                                for_subscriptions=login.purpose == "youtube")
+        return login.purpose
 
     try:
-        await run_in_threadpool(connect)
+        purpose = await run_in_threadpool(connect)
     except (accounts.SignInError, youtube.YoutubeError, secretbox.NoKey) as exc:
         response = _message(request, viewer, "A YouTube-fiók összekapcsolása nem sikerült", str(exc), "/csatornak",
                             400)
         response.delete_cookie(LOGIN_COOKIE, path="/auth/google")
+        return response
+    if purpose == "youtube-write":  # asked from a Megnézendő button: put that video on the list, go back
+        pending = _watch_pending(request)
+        back = pending[1] if pending else "/"
+        if pending:
+            try:
+                await run_in_threadpool(watchlater.add, settings, viewer.id, pending[0])
+            except (youtube.YoutubeError, watchlater.NeedConsent, secretbox.NoKey) as exc:
+                log.warning("Megnézendő after consent: %s", exc)
+        response = _redirect(back)
+        response.delete_cookie(LOGIN_COOKIE, path="/auth/google")
+        response.delete_cookie(WATCH_COOKIE, path="/")
         return response
     try:
         await run_in_threadpool(subscriptions.sync_google, settings, viewer.id)
@@ -520,7 +563,7 @@ def _activate(request: Request, enroll: bool):
             sess = _pending(request)
             return _render(request, "admin_login.html", step="code", error=error, admin=_is_admin_path(request),
                            csrf=sess.csrf_token if sess else "", status_code=401)
-        response = _redirect("/")
+        response = _after_login(request)
         _set_cookie(response, token, settings, int(settings.session_days * 86400))
         return response
     return handler
@@ -601,7 +644,8 @@ def _speaker_request(options: dict[str, Any] | None) -> str:
 templates.env.globals.update(item_title=_title, thumb=_thumb, source_labels=SOURCE_LABELS,
                              speaker_request=_speaker_request)
 
-LIBRARY_FILTERS = {"": "Minden elem", "nyilvanos": "Videók, weboldalak", "sajat": "Saját felvételek",
+LIBRARY_FILTERS = {"": "Minden elem", "olvasatlan": "Olvasatlan", "megnezendo": "Megnézendő",
+                   "nyilvanos": "Videók, weboldalak", "sajat": "Saját felvételek",
                    "nincs-osszefoglalo": "Összefoglaló nélkül", "folyamatban": "Folyamatban"}
 
 
@@ -634,6 +678,10 @@ def library_page(request: Request, oldal: int = 1, q: str = "", szures: str = ""
             query = query.where(Item.current_summary_id.is_(None))
         elif szures == "folyamatban":
             query = query.where(Item.id.in_(active or {0}))
+        elif szures == "olvasatlan":
+            query = query.where(Item.read_at.is_(None))
+        elif szures == "megnezendo":
+            query = query.where(watchlater.items_on_list(s, viewer.id))
         total = s.scalar(select(func.count()).select_from(query.subquery())) or 0
         pager = _pager(request, viewer, total, oldal)
         found = s.scalars(query.order_by(Item.created_at.desc(), Item.id.desc())
@@ -652,7 +700,21 @@ def library_page(request: Request, oldal: int = 1, q: str = "", szures: str = ""
     return _render(request, "library.html", viewer, share_offers=sharing.open_offers(viewer.id), silent=silent,
                    items=found, active=active, paging=pager, total=total,
                    has_runner=has_runner, q=q, szures=szures, filters=LIBRARY_FILTERS, mains=mains,
-                   previews=previews, cimke=cimke, item_tags=item_tags, tag_list=tag_list)
+                   previews=previews, cimke=cimke, item_tags=item_tags, tag_list=tag_list,
+                   watch=watchlater.video_ids(viewer.id), video_of=watchlater.video_of,
+                   back=_local_back(request))
+
+
+def _local_back(request: Request) -> str:
+    """This page's own address, to come back to after a button (only a local path)."""
+    return request.url.path + (f"?{request.url.query}" if request.url.query else "")
+
+
+def _safe_back(value: Any, default: str = "/") -> str:
+    back = str(value or "")
+    if not back.startswith("/") or back.startswith("//") or "\\" in back or len(back) > 500:
+        return default
+    return back
 
 
 SILENT_AFTER_S = 3600  # a runner not seen for this long while jobs wait: say so on the pages
@@ -753,6 +815,10 @@ def item_page(request: Request, item_id: int, atirat: int | None = None, nezet: 
             select(Translation.transcript_id).join(ItemTranslation, ItemTranslation.translation_id == Translation.id)
             .where(ItemTranslation.item_id == item.id)))
         item_language = (main or chosen).language if (main or chosen) else None
+        # opening the page reads it (19.3), once there is something to read
+        if item.read_at is None and (item.current_summary_id is not None or (
+                main is not None and not any(j.kind == "summarize" for j in status["active_jobs"]))):
+            item.read_at = utcnow()
     for p in paragraphs:
         p["speaker"] = personal.rename(p["speaker"], names)
     summary_html = None
@@ -781,6 +847,8 @@ def item_page(request: Request, item_id: int, atirat: int | None = None, nezet: 
                    local_models=LOCAL_MODELS, can_rerun=can_rerun, tags=tags, names=names, labels=labels,
                    translated=translated, item_language=item_language,
                    can_translate=bool(chosen and jobs.needs_translation(chosen.language)), **status,
+                   video_id=watchlater.video_of(item), on_watch=watchlater.video_of(item) in watchlater.video_ids(
+                       viewer.id), back=_local_back(request), watch_ready=_watch_ready(viewer.id),
                    **_chat_ctx(viewer, item.id, beszelgetes[:20]))
 
 
@@ -795,6 +863,82 @@ async def save_tags(item_id: int, request: Request, viewer: Viewer = Depends(aut
                 personal.set_tags(s, item, tags)
     await run_in_threadpool(save)
     return _redirect(f"/elem/{item_id}#sajat")
+
+
+@app.post("/elem/{item_id}/olvasott")
+async def item_read(request: Request, item_id: int, viewer: Viewer = Depends(authed_post)):
+    """Mark read (Elolvastam) or unread (Olvasatlannak jelölés), then back where the button was (19.3)."""
+    form = await request.form()
+    read = form.get("olvasott") != "0"
+
+    def run() -> None:
+        with db.user_session(viewer.id) as s:
+            item = s.get(Item, item_id)
+            if item is not None:
+                item.read_at = utcnow() if read else None
+    await run_in_threadpool(run)
+    return _redirect(_safe_back(form.get("vissza"), f"/elem/{item_id}"))
+
+
+WATCH_COOKIE = "dwyt_watch"
+
+
+def _watch_ready(user_id: int) -> bool:
+    """The Megnézendő buttons work without a detour to Google (the write consent is there)."""
+    return watchlater.can_write(user_id)
+
+
+def _watch_pending(request: Request) -> tuple[str, str] | None:
+    """The video (and the page) a Megnézendő press was for, while the user gave the consent at Google."""
+    raw = request.cookies.get(WATCH_COOKIE, "")
+    vid, _, back = raw.partition("|")
+    if not watchlater.VIDEO_ID.match(vid):
+        return None
+    return vid, _safe_back(back)
+
+
+async def _watch_consent(request: Request, viewer: Viewer, video_id: str, back: str) -> Response:
+    """To Google for the write consent; the callback then puts video_id on the list and goes to back."""
+    settings = get_settings()
+    if not secretbox.available() or not settings.google_client_id:
+        return _message(request, viewer, "A Megnézendő lista nem használható", "A központon nincs beállítva a "
+                        "Google-összekapcsolás (GOOGLE_CLIENT_ID, TOKEN_KEY).", back, 422)
+
+    def start() -> tuple[str, str]:
+        with db.system_session() as s:
+            return youtube.connect_start(s, settings, viewer.id, viewer.email, write=True)
+    try:
+        url, state = await run_in_threadpool(start)
+    except youtube.YoutubeError as exc:
+        return _message(request, viewer, "A Megnézendő lista nem használható", str(exc), back, 422)
+    response = RedirectResponse(url, status_code=303)
+    response.set_cookie(LOGIN_COOKIE, state, max_age=youtube.STATE_MINUTES * 60, httponly=True, samesite="lax",
+                        secure=settings.cookie_secure, path="/auth/google")
+    response.set_cookie(WATCH_COOKIE, f"{video_id}|{back}", max_age=youtube.STATE_MINUTES * 60, httponly=True,
+                        samesite="lax", secure=settings.cookie_secure, path="/")
+    return response
+
+
+@app.post("/megnezendo/{video_id}")
+async def watch_toggle(request: Request, video_id: str, viewer: Viewer = Depends(authed_post)):
+    """Put a YouTube video on the Megnézendő list (the "dwyt – megnézendő" playlist) or take it off (19.1).
+    The first time, the user is sent to Google to allow managing his playlists; then the video is added."""
+    form = await request.form()
+    back = _safe_back(form.get("vissza"))
+    on = form.get("be") != "0"
+    settings = get_settings()
+    if not watchlater.VIDEO_ID.match(video_id):
+        return PlainTextResponse("Ismeretlen videó.", status_code=404)
+    try:
+        if on:
+            await run_in_threadpool(watchlater.add, settings, viewer.id, video_id, str(form.get("cim") or "")[:500])
+        else:
+            await run_in_threadpool(watchlater.remove, settings, viewer.id, video_id)
+    except watchlater.NeedConsent:
+        return await _watch_consent(request, viewer, video_id, back)
+    except (youtube.YoutubeError, secretbox.NoKey) as exc:
+        return _message(request, viewer, "A Megnézendő lista most nem érhető el", str(exc), back, 502)
+    return _redirect(back)
 
 
 @app.post("/elem/{item_id}/jegyzet")
@@ -1171,35 +1315,52 @@ async def channel_remove(sub_id: int, viewer: Viewer = Depends(authed_post)):
 
 
 @app.get("/postalada", response_class=HTMLResponse)
-def inbox_page(request: Request, allapot: str = "uj", oldal: int = 1, viewer: Viewer = Depends(current_viewer)):
+def inbox_page(request: Request, allapot: str = "uj", oldal: int = 1, mind: int = 0,
+               viewer: Viewer = Depends(current_viewer)):
     tab = allapot if allapot in INBOX_TABS else "uj"
+    hide_read = tab == "kesz" and not mind  # Kész: the read ones only with "Az elolvasottak is" (19.4)
     with db.user_session(viewer.id) as s:
         subscriptions.sync_inbox(s)
         counts = dict(s.execute(select(InboxEntry.state, func.count()).group_by(InboxEntry.state)).all())
-        pager = _pager(request, viewer, sum(counts.get(st, 0) for st in INBOX_TABS[tab]), oldal)
-        entries = s.scalars(select(InboxEntry).where(InboxEntry.state.in_(INBOX_TABS[tab]))
-                            .order_by(InboxEntry.published_at.desc().nulls_last(), InboxEntry.id.desc())
+        query = select(InboxEntry).where(InboxEntry.state.in_(INBOX_TABS[tab]))
+        if hide_read:
+            query = query.outerjoin(Item, Item.id == InboxEntry.item_id).where(Item.read_at.is_(None))
+        shown = s.scalar(select(func.count()).select_from(query.subquery())) or 0
+        pager = _pager(request, viewer, shown, oldal)
+        entries = s.scalars(query.order_by(InboxEntry.published_at.desc().nulls_last(), InboxEntry.id.desc())
                             .offset(pager["offset"]).limit(pager["size"])).all()
         job_map = {j.id: j for j in s.scalars(select(Job).where(Job.id.in_([e.job_id for e in entries if e.job_id])))}
         waiting = subscriptions.gpu_waiting(s)
         followed = s.scalar(select(func.count()).select_from(Subscription)) or 0
+        descriptions = dict(s.execute(select(ChannelVideo.video_id, ChannelVideo.description).where(
+            ChannelVideo.video_id.in_([e.video_id for e in entries]), ChannelVideo.description.is_not(None))).all())
+        item_map = {i.id: i for i in s.scalars(select(Item).where(Item.id.in_([e.item_id for e in entries
+                                                                              if e.item_id])))}
+        previews = {sm.id: render.plain_preview(sm.text, LIBRARY_PREVIEW_CHARS)
+                    for sm in s.scalars(select(Summary).where(Summary.id.in_(
+                        [i.current_summary_id for i in item_map.values() if i.current_summary_id])))}
     tab_counts = {k: sum(counts.get(st, 0) for st in v) for k, v in INBOX_TABS.items()}
     return _render(request, "inbox.html", viewer, entries=entries, tab=tab, tabs=INBOX_LABELS, tab_counts=tab_counts,
                    gpu_waiting=waiting, job_map=job_map, followed=followed, now=utcnow(), paging=pager,
-                   inbox_new=counts.get("new", 0))
+                   inbox_new=counts.get("new", 0), descriptions=descriptions, item_map=item_map, previews=previews,
+                   watch=watchlater.video_ids(viewer.id), watch_ready=_watch_ready(viewer.id), mind=bool(mind),
+                   hidden_read=tab_counts["kesz"] - shown if hide_read else 0, back=_local_back(request))
 
 
 @app.post("/postalada/{entry_id}/keres")
 async def inbox_request(request: Request, entry_id: int, viewer: Viewer = Depends(authed_post)):
     back = str((await request.form()).get("vissza") or "uj")
     await run_in_threadpool(subscriptions.request_entry, get_settings(), viewer.id, entry_id)
+    if back.startswith("/"):
+        return _redirect(_safe_back(back, "/postalada"))
     return _redirect(f"/postalada?allapot={back if back in INBOX_TABS else 'uj'}")
 
 
 @app.post("/postalada/{entry_id}/kihagy")
-async def inbox_skip(entry_id: int, viewer: Viewer = Depends(authed_post)):
+async def inbox_skip(request: Request, entry_id: int, viewer: Viewer = Depends(authed_post)):
+    back = _safe_back((await request.form()).get("vissza"), "/postalada")
     await run_in_threadpool(subscriptions.skip, viewer.id, [entry_id])
-    return _redirect("/postalada")
+    return _redirect(back)
 
 
 @app.post("/postalada/kihagy-mind")
@@ -1225,7 +1386,9 @@ def _settings_page(request: Request, viewer: Viewer, saved: bool = False, messag
     with db.system_session() as s:
         user = s.get(User, viewer.id)
         translate_auto, captions = user.translate_auto, (user.captions_policy, user.captions_auto_langs)
+        share_mode = user.share_mode
     return _render(request, "settings.html", viewer, status_code=status, translate_auto=translate_auto, saved=saved,
+                   share_mode=share_mode, share_modes=SHARE_MODES,
                    captions_policy=captions[0], captions_auto_langs=captions[1],
                    caption_policies=captionpolicy.POLICIES, caption_hints=captionpolicy.HINTS,
                    usage=_usage(viewer), message=message, message_error=error, note_cfg=notify.get(viewer.id),
@@ -1246,6 +1409,7 @@ async def save_settings(request: Request, viewer: Viewer = Depends(authed_post))
     value = form.get("translate_auto") == "on"
     policy = str(form.get("captions_policy", ""))
     langs = ", ".join(captionpolicy.parse_langs(str(form.get("captions_auto_langs", ""))[:200]))
+    share_mode = str(form.get("share_mode", ""))
 
     def save() -> None:
         with db.system_session() as s:  # the users table is the system's; only the viewer's own row
@@ -1254,6 +1418,8 @@ async def save_settings(request: Request, viewer: Viewer = Depends(authed_post))
             if policy in captionpolicy.POLICIES:
                 user.captions_policy = policy
             user.captions_auto_langs = langs
+            if share_mode in SHARE_MODES:
+                user.share_mode = share_mode
     await run_in_threadpool(save)
     return await run_in_threadpool(_settings_page, request, viewer, True)
 
@@ -1613,6 +1779,104 @@ def _cloud_note(viewer: Viewer) -> str:
                     "fér bele." if left > 0 else
                     f"{r.owner_name} futtatóján a havi felhős keret elfogyott; a következő hónapban indul újra.")
     return ""
+
+
+# ---- sharing from the phone (19.2): the installed web app is a share target -------------------------------------
+
+SHARE_MODES = {"ask": ("Megnyílik egy oldal a választásokkal",
+                       "Átírás módja, összefoglaló, megnézendő; a Kérem gombbal indul."),
+               "start": ("Rögtön elindul a szokásos beállításokkal",
+                         "Mint az Új átirat oldal alapbeállításai; utána az elem oldala nyílik meg.")}
+SHARED_URL = re.compile(r"https?://[^\s<>\"']+")
+
+
+def _shared_url(url: str, text: str) -> str | None:
+    """The link of a share: the url field, else the first link in the text (the YouTube app puts it there)."""
+    for value in (url, text):
+        found = SHARED_URL.search(value or "")
+        if found:
+            return found.group(0).rstrip(".,;)")
+    return None
+
+
+def _default_mode(viewer: Viewer, ref: sources.SourceRef) -> str:
+    if ref.kind != "youtube":
+        return "local"
+    return "local" if captionpolicy.for_user(viewer.id).mode == "never" else "captions"
+
+
+def _existing_item(viewer: Viewer, ref: sources.SourceRef) -> int | None:
+    with db.user_session(viewer.id) as s:
+        return s.scalar(select(Item.id).join(Source, Source.id == Item.source_id).where(Source.key == ref.key))
+
+
+@app.get("/megosztas", response_class=HTMLResponse)
+async def share_page(request: Request, url: str = "", text: str = "", title: str = "",
+                     viewer: Viewer = Depends(current_viewer)):
+    link = _shared_url(url[:2000], text[:4000])
+    if not link:
+        return _message(request, viewer, "Nincs benne link", "A megosztásban nem találtam webcímet. Videót vagy "
+                        "weboldalt ossz meg a dwyt-tal.", "/", 422)
+    try:
+        ref = sources.parse(link)
+    except sources.BadUrl as exc:
+        return _message(request, viewer, "Ezt nem lehet beküldeni", str(exc), "/", 422)
+    existing = await run_in_threadpool(_existing_item, viewer, ref)
+    if existing:  # already in the library: straight to its page
+        return _redirect(f"/elem/{existing}")
+    with db.system_session() as s:
+        mode = s.scalar(select(User.share_mode).where(User.id == viewer.id)) or "ask"
+    # start at once only for a real share (the phone opens it: Sec-Fetch-Site none) or from dwyt itself; a link on
+    # another site leading here gets the page with the button (a GET must not start work for someone else)
+    if mode == "start" and request.headers.get("sec-fetch-site") in ("none", "same-origin"):
+        default = _default_mode(viewer, ref)
+        try:
+            await run_in_threadpool(ownfiles.check_storage, get_settings(), viewer.id)
+        except ownfiles.QuotaError as exc:
+            return _message(request, viewer, "Nem indult el", str(exc), "/", 422)
+        item_id = await run_in_threadpool(submit_mod.submit_url, viewer.id, ref, {"mode": default, "language": None,
+                                          "diarize": default != "captions"}, True, None)
+        return _redirect(f"/elem/{item_id}")
+    shown = title.strip()[:300]
+    if not shown or SHARED_URL.fullmatch(shown):
+        shown = ""
+    return _render(request, "share.html", viewer, ref=ref, shown_title=shown, mode=_default_mode(viewer, ref),
+                   modes=MODES, errors=[], watch_ready=_watch_ready(viewer.id))
+
+
+@app.post("/megosztas")
+async def share_submit(request: Request, viewer: Viewer = Depends(authed_post)):
+    form = {k: str(v) for k, v in (await request.form()).items()}
+    options, errors = parse_options(form)
+    ref = None
+    try:
+        ref = sources.parse(form.get("url", ""))
+    except sources.BadUrl as exc:
+        errors.append(str(exc))
+    if ref is not None and options.get("mode") == "captions" and ref.kind != "youtube":
+        errors.append("YouTube-feliratot csak YouTube-videóhoz lehet kérni.")
+    if not errors:
+        try:
+            await run_in_threadpool(ownfiles.check_storage, get_settings(), viewer.id)
+        except ownfiles.QuotaError as exc:
+            errors.append(str(exc))
+    if errors:
+        if ref is None:
+            return _message(request, viewer, "Ezt nem lehet beküldeni", " ".join(errors), "/", 422)
+        return _render(request, "share.html", viewer, ref=ref, shown_title=form.get("cim", "")[:300],
+                       mode=form.get("mode", ""), modes=MODES, errors=errors, watch_ready=_watch_ready(viewer.id),
+                       status_code=422)
+    item_id = await run_in_threadpool(submit_mod.submit_url, viewer.id, ref, options, form.get("summarize") == "on",
+                                      None)
+    if form.get("megnezendo") == "on" and ref.kind == "youtube":
+        try:
+            await run_in_threadpool(watchlater.add, get_settings(), viewer.id, ref.video_id, form.get("cim") or None)
+        except watchlater.NeedConsent:
+            return await _watch_consent(request, viewer, ref.video_id, f"/elem/{item_id}")
+        except (youtube.YoutubeError, secretbox.NoKey) as exc:
+            return _message(request, viewer, "Elindult, de a Megnézendő listára nem került fel", str(exc),
+                            f"/elem/{item_id}", 502)
+    return _redirect(f"/elem/{item_id}")
 
 
 @app.get("/uj", response_class=HTMLResponse)

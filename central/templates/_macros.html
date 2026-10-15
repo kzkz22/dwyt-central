@@ -1,3 +1,4 @@
+{% from "_icons.html" import icon %}
 {% macro job_line(job, now) -%}
 {%- set kind = kind_labels.get(job.kind, job.kind) %}{{ kind }}
 {%- if job.state == 'running' %} folyamatban{% if stage_label(job.stage) and stage_label(job.stage) != kind %} – {{ stage_label(job.stage) }}{% endif %}
@@ -78,4 +79,24 @@
   </form>
 </nav>
 {% endif %}
+{%- endmacro %}
+
+
+{# The Megnézendő toggle (19.1): a YouTube video onto / off the user's "dwyt – megnézendő" playlist. The first press
+   without the write consent goes to Google and comes back to `back`. #}
+{% macro watch_button(vid, on, title, back, csrf, label=True, cls="") -%}
+<form method="post" action="/megnezendo/{{ vid }}" class="inline watch-form {{ cls }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="be" value="{{ '0' if on else '1' }}">
+  <input type="hidden" name="vissza" value="{{ back }}"><input type="hidden" name="cim" value="{{ (title or '')[:300] }}">
+  <button class="small {{ 'on' if on else 'secondary' }}" data-key="m" aria-pressed="{{ 'true' if on else 'false' }}" title="{{ 'Levétel a YouTube-os megnézendő listáról' if on else 'Megnézendő: a YouTube-fiókod dwyt – megnézendő listájára' }}">{{ icon("bookmark", 15, "filled" if on else "") }}{% if label %}{{ 'A megnézendő listán' if on else 'Megnézendő' }}{% else %}<span class="sr-only">{{ 'A megnézendő listán' if on else 'Megnézendő' }}</span>{% endif %}</button>
+</form>
+{%- endmacro %}
+
+{# Mark an item read or unread (19.3), then back to `back`. #}
+{% macro read_button(item_id, read, back, csrf, cls="secondary small") -%}
+<form method="post" action="/elem/{{ item_id }}/olvasott" class="inline">
+  <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="olvasott" value="{{ '0' if read else '1' }}">
+  <input type="hidden" name="vissza" value="{{ back }}">
+  <button class="{{ cls }}" data-key="{{ 'u' if read else 'x' }}">{{ icon("check", 15) }}{{ 'Olvasatlannak jelölés' if read else 'Elolvastam' }}</button>
+</form>
 {%- endmacro %}

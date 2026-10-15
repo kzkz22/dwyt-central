@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import pager %}
+{% from "_macros.html" import pager, watch_button %}
 {% block title %}Könyvtár{% endblock %}
 {% block content %}
 <div class="bar"><h1>Könyvtár</h1><a class="button" href="/uj">Új átirat</a></div>
@@ -24,10 +24,11 @@
 {% if items %}
 <ul class="items">
 {% for item in items %}
-  <li class="item media">
+  {% set vid = video_of(item) %}
+  <li class="item media{{ ' read' if item.read_at }}">
     <a class="thumb" href="/elem/{{ item.id }}">{% if thumb(item.source) %}<img src="{{ thumb(item.source) }}" alt="" loading="lazy">{% else %}<span class="nothumb">{{ 'saját' if not item.is_public else 'nincs kép' }}</span>{% endif %}</a>
     <div>
-      <a class="title" href="/elem/{{ item.id }}">{{ item_title(item) }}</a>
+      <a class="title" href="/elem/{{ item.id }}">{% if not item.read_at %}<span class="unread-dot" title="olvasatlan"></span><span class="sr-only">Olvasatlan: </span>{% endif %}{{ item_title(item) }}</a>
       <div class="meta">
         {% if item.source.meta.channel %}{{ item.source.meta.channel }} · {% endif %}
         {% if item.source.meta.duration_s %}{{ hms(item.source.meta.duration_s) }} · {% endif %}
@@ -35,10 +36,12 @@
         {% if mains.get(item.main_transcript_id) %} · {{ describe_transcript(mains[item.main_transcript_id]) }}{% if mains[item.main_transcript_id].language %} ({{ mains[item.main_transcript_id].language }}){% endif %}{% endif %}
         {% if item.id in active %}<span class="badge warn">folyamatban</span>{% endif %}
         {% if not item.is_public %}<span class="badge">saját</span>{% endif %}
+        {% if vid and vid in watch %}<span class="badge cloud">megnézendő</span>{% endif %}
       </div>
       {% if item_tags.get(item.id) %}<div class="meta">{% for t in item_tags[item.id] %}<a class="badge" href="/?cimke={{ t|urlencode }}">{{ t }}</a> {% endfor %}</div>{% endif %}
       {% if previews.get(item.current_summary_id) %}<p class="preview">{{ previews[item.current_summary_id] }}</p>{% endif %}
     </div>
+    {% if vid %}{{ watch_button(vid, vid in watch, item_title(item), back, csrf, label=False, cls="side-toggle") }}{% endif %}
   </li>
 {% endfor %}
 </ul>

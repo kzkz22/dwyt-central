@@ -21,7 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select, text, update
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session as DbSession
 from sqlalchemy.orm import object_session
@@ -30,7 +30,7 @@ from . import captionpolicy, db, indexing, jobs, reuse, secretbox, youtube
 from .config import Settings, get_settings
 from .db import utcnow
 from .models import (ACTIVE, Channel, ChannelVideo, InboxEntry, Item, Job, Runner, Source, Subscription,
-                     YoutubeLink)
+                     WatchLater, YoutubeLink)
 
 log = logging.getLogger("dwyt.subscriptions")
 
@@ -109,17 +109,26 @@ def link_of(user_id: int) -> YoutubeLink | None:
         return link
 
 
-def save_link(user_id: int, refresh_token: str, email: str | None) -> None:
+def save_link(user_id: int, refresh_token: str, email: str | None, can_write: bool = False,
+              for_subscriptions: bool = True) -> None:
+    """for_subscriptions=False: the consent was asked for the Megnézendő list only; a new link then does not take
+    over the subscriptions (an existing one keeps doing so)."""
     with db.system_session() as s:
-        stmt = insert(YoutubeLink).values(user_id=user_id, email=email, refresh_token_enc=secretbox.seal(refresh_token))
-        s.execute(stmt.on_conflict_do_update(index_elements=[YoutubeLink.user_id], set_={
-            "email": stmt.excluded.email, "refresh_token_enc": stmt.excluded.refresh_token_enc,
-            "created_at": func.now(), "synced_at": None, "sync_error": None}))
+        stmt = insert(YoutubeLink).values(user_id=user_id, email=email, refresh_token_enc=secretbox.seal(refresh_token),
+                                          can_write=can_write, subs_sync=for_subscriptions)
+        changes = {"email": stmt.excluded.email, "refresh_token_enc": stmt.excluded.refresh_token_enc,
+                   "can_write": stmt.excluded.can_write, "created_at": func.now(), "synced_at": None,
+                   "sync_error": None}
+        if for_subscriptions:
+            changes["subs_sync"] = True
+        s.execute(stmt.on_conflict_do_update(index_elements=[YoutubeLink.user_id], set_=changes))
 
 
 def unlink(settings: Settings, user_id: int) -> None:
-    """Forget the consent (and revoke it at Google); the channels and their rules stay, as manual ones."""
+    """Forget the consent (and revoke it at Google); the channels and their rules stay, as manual ones. dwyt's copy
+    of the Megnézendő list goes too (the playlist itself stays on YouTube)."""
     with db.system_session() as s:
+        s.execute(delete(WatchLater).where(WatchLater.user_id == user_id))
         link = s.get(YoutubeLink, user_id)
         token = None
         if link is not None:
@@ -140,6 +149,15 @@ def sync_google(settings: Settings, user_id: int) -> dict[str, Any]:
     link = link_of(user_id)
     if link is None:
         raise youtube.YoutubeError("Nincs összekapcsolt YouTube-fiók.")
+    if not link.subs_sync:  # connected for the Megnézendő list only
+        from . import watchlater
+        with db.system_session() as s:
+            s.execute(update(YoutubeLink).where(YoutubeLink.user_id == user_id).values(synced_at=utcnow()))
+        try:
+            watchlater.sync(settings, user_id)
+        except (youtube.YoutubeError, watchlater.NeedConsent) as exc:
+            log.info("Megnézendő list of user %s not synced: %s", user_id, exc)
+        return {"count": 0, "added": 0, "gone": 0, "total": None}
     try:
         token = youtube.access_token(settings, secretbox.unseal(link.refresh_token_enc))
         subs, total = youtube.subscriptions(settings, token)
@@ -161,6 +179,11 @@ def sync_google(settings: Settings, user_id: int) -> dict[str, Any]:
         s.execute(update(YoutubeLink).where(YoutubeLink.user_id == user_id)
                   .values(synced_at=utcnow(), sync_error=None, sync_count=len(subs), sync_total=total,
                           channel_title=channel_title))
+    from . import watchlater
+    try:  # the Megnézendő playlist as it is on YouTube (19.1)
+        watchlater.sync(settings, user_id)
+    except (youtube.YoutubeError, watchlater.NeedConsent, secretbox.NoKey) as exc:
+        log.info("Megnézendő list of user %s not synced: %s", user_id, exc)
     return {"count": len(subs), "added": added, "gone": gone, "total": total}
 
 
@@ -251,9 +274,13 @@ def poll_channel(settings: Settings, channel_id: str, raise_outage: bool = False
             ch.title = videos[0].channel_title[:300]
         for v in videos:
             got = s.execute(insert(ChannelVideo).values(video_id=v.video_id, channel_id=channel_id, title=v.title,
-                                                        published_at=v.published_at)
+                                                        published_at=v.published_at, description=v.description)
                             .on_conflict_do_nothing(index_elements=[ChannelVideo.video_id])
                             .returning(ChannelVideo.video_id)).scalar()
+            if not got and v.description:  # seen before this column existed
+                s.execute(update(ChannelVideo).where(ChannelVideo.video_id == v.video_id,
+                                                     ChannelVideo.description.is_(None))
+                          .values(description=v.description))
             seen += 1 if got else 0
             if got and (oldest is None or v.published_at is None or v.published_at > oldest):
                 new.append(got)

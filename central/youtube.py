@@ -30,6 +30,11 @@ from .models import LoginState
 from .security import new_token, token_hash
 
 SCOPE = "https://www.googleapis.com/auth/youtube.readonly"
+# managing the user's playlists: the Megnézendő list (decision 19.1); YouTube's own "Watch later" list cannot be
+# written through the API, so dwyt keeps a playlist of its own. Asked only when the user first uses Megnézendő.
+WRITE_SCOPE = "https://www.googleapis.com/auth/youtube"
+WATCH_PLAYLIST = "dwyt – megnézendő"
+DESCRIPTION_CHARS = 500
 NS = {"a": "http://www.w3.org/2005/Atom", "yt": "http://www.youtube.com/xml/schemas/2015",
       "media": "http://search.yahoo.com/mrss/"}
 CHANNEL_ID = re.compile(r"^UC[A-Za-z0-9_-]{22}$")
@@ -58,6 +63,7 @@ class FeedVideo:
     title: str
     published_at: datetime | None
     channel_title: str | None
+    description: str | None = None
 
 
 def _client(timeout: float = 20) -> httpx.Client:
@@ -99,7 +105,9 @@ def feed(settings: Settings, channel_id: str) -> list[FeedVideo]:
             when = datetime.fromisoformat(published.replace("Z", "+00:00")) if published else None
         except ValueError:
             when = None
-        out.append(FeedVideo(vid, (entry.findtext("a:title", namespaces=NS) or vid)[:500], when, channel_title))
+        desc = (entry.findtext("media:group/media:description", namespaces=NS) or "").strip()
+        out.append(FeedVideo(vid, (entry.findtext("a:title", namespaces=NS) or vid)[:500], when, channel_title,
+                             " ".join(desc.split())[:DESCRIPTION_CHARS] or None))
     return out
 
 
@@ -165,24 +173,27 @@ def _b64url(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
 
 
-def connect_start(s: DbSession, settings: Settings, user_id: int, email: str) -> tuple[str, str]:
-    """Remember the state for this user; return Google's consent URL and the state."""
+def connect_start(s: DbSession, settings: Settings, user_id: int, email: str, write: bool = False) -> tuple[str, str]:
+    """Remember the state for this user; return Google's consent URL and the state. write: also manage the
+    user's playlists (the Megnézendő list)."""
     if not settings.google_client_id:
         raise YoutubeError("A Google-belépés nincs beállítva (GOOGLE_CLIENT_ID).")
     state, nonce, verifier = new_token(), new_token(), new_token(48)
     s.execute(delete(LoginState).where(LoginState.created_at < utcnow() - timedelta(minutes=STATE_MINUTES)))
-    s.add(LoginState(state_hash=token_hash(state), nonce=nonce, verifier=verifier, purpose="youtube",
-                     user_id=user_id))
+    s.add(LoginState(state_hash=token_hash(state), nonce=nonce, verifier=verifier,
+                     purpose="youtube-write" if write else "youtube", user_id=user_id))
+    scopes = f"openid email {SCOPE}" + (f" {WRITE_SCOPE}" if write else "")
     params = {"client_id": settings.google_client_id, "redirect_uri": settings.redirect_uri,
-              "response_type": "code", "scope": f"openid email {SCOPE}", "state": state, "nonce": nonce,
+              "response_type": "code", "scope": scopes, "state": state, "nonce": nonce,
               "code_challenge": _b64url(hashlib.sha256(verifier.encode()).digest()),
               "code_challenge_method": "S256", "access_type": "offline", "prompt": "consent",
               "include_granted_scopes": "true", "login_hint": email}
     return f"{settings.google_auth_url}?{urlencode(params)}", state
 
 
-def connect_finish(login: LoginState, settings: Settings, code: str) -> tuple[str, str | None]:
-    """Exchange the code; returns the refresh token and the Google account's address."""
+def connect_finish(login: LoginState, settings: Settings, code: str) -> tuple[str, str | None, bool]:
+    """Exchange the code; returns the refresh token, the Google account's address and whether the consent
+    covers managing playlists."""
     from .accounts import _claims  # the ID token arrives over TLS from Google's token endpoint
 
     if (utcnow() - login.created_at) > timedelta(minutes=STATE_MINUTES):
@@ -197,7 +208,11 @@ def connect_finish(login: LoginState, settings: Settings, code: str) -> tuple[st
     if resp.status_code != 200:
         raise YoutubeError("A Google nem fogadta el az összekapcsolást; kezdd újra.")
     data = resp.json()
-    if SCOPE not in str(data.get("scope") or "").split():
+    granted = str(data.get("scope") or "").split()
+    if login.purpose == "youtube-write" and WRITE_SCOPE not in granted:
+        raise YoutubeError("A Google nem adta meg a lejátszási listák kezelésének jogát (a jóváhagyásnál be kell "
+                           "pipálni). Kezdd újra.")
+    if SCOPE not in granted and WRITE_SCOPE not in granted:
         raise YoutubeError("A Google nem adta meg a feliratkozások olvasásának jogát (a jóváhagyásnál "
                            "be kell pipálni). Kezdd újra.")
     if not data.get("refresh_token"):
@@ -205,7 +220,8 @@ def connect_finish(login: LoginState, settings: Settings, code: str) -> tuple[st
     claims = _claims(data.get("id_token") or "") if data.get("id_token") else {}
     if claims and claims.get("aud") != settings.google_client_id:
         raise YoutubeError("A Google válasza nem ehhez az alkalmazáshoz szól.")
-    return str(data["refresh_token"]), (str(claims["email"])[:200] if claims.get("email") else None)
+    return (str(data["refresh_token"]), (str(claims["email"])[:200] if claims.get("email") else None),
+            WRITE_SCOPE in granted)
 
 
 def access_token(settings: Settings, refresh_token: str) -> str:
@@ -276,3 +292,79 @@ def subscriptions(settings: Settings, token: str) -> tuple[list[tuple[str, str |
             if not page:
                 break
     return out, total
+
+
+# ---- the Megnézendő playlist (decision 19.1) ---------------------------------------------------------
+
+class PlaylistGone(YoutubeError):
+    """The playlist (or the item) is no longer there: deleted on YouTube."""
+
+
+def _api(settings: Settings, token: str, method: str, path: str, **kw) -> httpx.Response:
+    try:
+        resp = httpx.request(method, f"{settings.google_api_url}/youtube/v3/{path}", timeout=20,
+                             headers={"Authorization": f"Bearer {token}"}, **kw)
+    except httpx.HTTPError as exc:
+        raise YoutubeError(f"a YouTube nem érhető el: {exc}") from exc
+    if resp.status_code == 404:
+        raise PlaylistGone("nincs ilyen lejátszási lista vagy elem")
+    if resp.status_code == 403 and "quota" in resp.text.lower():
+        raise YoutubeError("A YouTube mai kerete elfogyott (holnap újra megy).")
+    if resp.status_code in (401, 403):
+        raise YoutubeError("A YouTube nem engedi a lejátszási lista kezelését; engedélyezd újra a Megnézendő gombbal.")
+    if resp.status_code >= 400:
+        raise YoutubeError(f"a YouTube hibát adott (HTTP {resp.status_code})")
+    return resp
+
+
+def find_or_create_playlist(settings: Settings, token: str) -> str:
+    """The id of the user's "dwyt – megnézendő" playlist; created (private) when there is none."""
+    page = None
+    for _ in range(20):
+        params = {"part": "snippet", "mine": "true", "maxResults": 50}
+        if page:
+            params["pageToken"] = page
+        data = _api(settings, token, "GET", "playlists", params=params).json()
+        for it in data.get("items") or []:
+            if (it.get("snippet") or {}).get("title") == WATCH_PLAYLIST and it.get("id"):
+                return str(it["id"])
+        page = data.get("nextPageToken")
+        if not page:
+            break
+    body = {"snippet": {"title": WATCH_PLAYLIST, "description": "Amit a dwyt-ben megnézendőnek jelöltél."},
+            "status": {"privacyStatus": "private"}}
+    return str(_api(settings, token, "POST", "playlists", params={"part": "snippet,status"}, json=body).json()["id"])
+
+
+def playlist_add(settings: Settings, token: str, playlist_id: str, video_id: str) -> tuple[str, str | None]:
+    """Returns the playlist item's id and the video's title (YouTube answers with it)."""
+    body = {"snippet": {"playlistId": playlist_id, "resourceId": {"kind": "youtube#video", "videoId": video_id}}}
+    data = _api(settings, token, "POST", "playlistItems", params={"part": "snippet"}, json=body).json()
+    return str(data["id"]), ((data.get("snippet") or {}).get("title") or None)
+
+
+def playlist_remove(settings: Settings, token: str, playlist_item_id: str) -> None:
+    try:
+        _api(settings, token, "DELETE", "playlistItems", params={"id": playlist_item_id})
+    except PlaylistGone:
+        pass  # already removed on YouTube
+
+
+def playlist_items(settings: Settings, token: str, playlist_id: str) -> list[tuple[str, str, str | None]]:
+    """(playlist item id, video id, title) of everything on the playlist."""
+    out = []
+    page = None
+    for _ in range(40):
+        params = {"part": "snippet", "playlistId": playlist_id, "maxResults": 50}
+        if page:
+            params["pageToken"] = page
+        data = _api(settings, token, "GET", "playlistItems", params=params).json()
+        for it in data.get("items") or []:
+            sn = it.get("snippet") or {}
+            vid = str((sn.get("resourceId") or {}).get("videoId") or "")
+            if VIDEO_ID.match(vid) and it.get("id"):
+                out.append((str(it["id"]), vid, (sn.get("title") or None)))
+        page = data.get("nextPageToken")
+        if not page:
+            break
+    return out

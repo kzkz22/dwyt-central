@@ -16,7 +16,7 @@
   <h2>Feliratkozások a YouTube-fiókodból</h2>
   {% if not google_ready %}
   <p class="muted">A központon nincs beállítva a Google-belépés; addig a Takeout-fájl vagy a kézi felvétel működik.</p>
-  {% elif link %}
+  {% elif link and link.subs_sync %}
   <p>Összekapcsolva{% if link.channel_title %} a(z) <strong>{{ link.channel_title }}</strong> YouTube-csatornával{% endif %}{% if link.email %} ({{ link.email }}){% endif %}. A lista naponta frissül{% if link.synced_at %}; utoljára {{ link.synced_at|local }}{% if link.sync_error %} – <span class="error-text">hiba: {{ link.sync_error }}</span>{% elif link.sync_count is not none %}: {{ link.sync_count }} feliratkozás jött le{% if link.sync_total is not none %}, a YouTube szerint {{ link.sync_total }} van{% endif %}{% endif %}{% endif %}.</p>
   <p class="muted">Ha kevesebb jön le, mint amennyit a YouTube-on látsz: ellenőrizd, hogy a fenti csatorna-e az, amelyikkel feliratkoztál (ha nem: leválasztás, majd újra összekapcsolás, és a Google-választóban a megfelelő csatorna). Ha az, és a két szám is egyezik, a YouTube Data API maga adja vissza hiányosan a listát; a hiányzókat a Google Takeout <code>subscriptions.csv</code> fájljából pótolhatod (lent), ezeket a napi szinkron nem törli.</p>
   <div class="actions">
@@ -27,7 +27,9 @@
       <input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="secondary small">Leválasztás</button>
     </form>
   </div>
+  {% if link.can_write %}<p class="muted">A Megnézendő gombok a YouTube-fiókod <em>dwyt – megnézendő</em> lejátszási listáját kezelik.</p>{% endif %}
   {% else %}
+  {% if link %}<p class="muted">A YouTube-fiókod{% if link.email %} ({{ link.email }}){% endif %} csak a Megnézendő listához van összekapcsolva; a feliratkozásaidat nem veszi át.</p>{% endif %}
   <form method="post" action="/csatornak/youtube" class="inline">
     <input type="hidden" name="csrf_token" value="{{ csrf }}"><button {% if not token_ready %}disabled{% endif %}>YouTube-fiók összekapcsolása</button>
   </form>

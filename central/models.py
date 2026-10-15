@@ -37,6 +37,7 @@ class User(Base):
     page_size: Mapped[int] = mapped_column(Integer, default=25)
     captions_policy: Mapped[str] = mapped_column(Text, default="manual")  # manual | any | never (18.9)
     captions_auto_langs: Mapped[str] = mapped_column(Text, default="")  # "en, de": machine captions fine there
+    share_mode: Mapped[str] = mapped_column(Text, default="ask")  # sharing from the phone: ask | start (19.4)
     quota_storage_mb: Mapped[int | None] = mapped_column(Integer)
     quota_upload_mb: Mapped[int | None] = mapped_column(Integer)
     totp_after_google: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -231,6 +232,7 @@ class Item(Base):
     updated_at: Mapped[datetime] = _now()
     notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     note: Mapped[str | None] = mapped_column(Text)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # opened or marked read (19.3)
     source: Mapped[Source] = relationship(lazy="joined")
 
 
@@ -368,6 +370,7 @@ class ChannelVideo(Base):
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     is_short: Mapped[bool | None] = mapped_column(Boolean)
     seen_at: Mapped[datetime] = _now()
+    description: Mapped[str | None] = mapped_column(Text)  # the start of the video's description (feed)
 
 
 class Subscription(Base):
@@ -416,6 +419,9 @@ class YoutubeLink(Base):
     sync_count: Mapped[int | None] = mapped_column(Integer)
     sync_total: Mapped[int | None] = mapped_column(Integer)  # what YouTube reported (pageInfo.totalResults)
     channel_title: Mapped[str | None] = mapped_column(Text)  # the YouTube channel the consent belongs to
+    can_write: Mapped[bool] = mapped_column(Boolean, default=False)  # may manage playlists (Megnézendő, 19.1)
+    watch_playlist_id: Mapped[str | None] = mapped_column(Text)      # "dwyt – megnézendő" in that account
+    subs_sync: Mapped[bool] = mapped_column(Boolean, default=True)    # false: connected only for Megnézendő
 
 
 # ---- notifications (round 4b) ---------------------------------------------------------------
@@ -524,3 +530,14 @@ class RunnerInstallCode(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     runner_id: Mapped[int | None] = mapped_column(ForeignKey("runners.id", ondelete="SET NULL"))
+
+
+class WatchLater(Base):
+    """A video on the user's Megnézendő list (the "dwyt – megnézendő" playlist in his YouTube account)."""
+    __tablename__ = "watch_later"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    video_id: Mapped[str] = mapped_column(Text)
+    title: Mapped[str | None] = mapped_column(Text)
+    playlist_item_id: Mapped[str | None] = mapped_column(Text)
+    added_at: Mapped[datetime] = _now()

@@ -18,11 +18,12 @@ Az 1–6. kör kész:
 - kész eredmények átvétele (ha valaki már átíratta ugyanazt), kvóták;
 - elemoldal: összefoglaló-változatok (választható aktuális, Markdown-letöltés), több átirat (fő átirat választása, törlés, újraírás más beállítással), letöltés TXT-ben és SRT-ben eredetiben és magyarul, választható modell, a hosszú munkák haladása;
 - könyvtár szűréssel és összefoglaló-előnézettel; a hiányzó összefoglalók, fordítások és az index pótlása egy gombbal;
-- YouTube-feliratkozások (a YouTube-fiókból, Takeout-fájlból vagy kézzel), csatornánkénti szabály, postaláda; a feliratkozásos videók láncolata: felirat → helyi Whisper → felhő, ha engedélyezett (4a).;
+- YouTube-feliratkozások (a YouTube-fiókból, Takeout-fájlból vagy kézzel), csatornánkénti szabály, postaláda; a feliratkozásos videók láncolata: felirat → helyi Whisper → felhő, ha engedélyezett (4a);
 - értesítés ntfy-jal vagy Home Assistanttel: kész munka, hiba, a feliratkozásokról napi összesítő vagy csatornánként azonnal (4b);
 - MCP a `/mcp` címen, felhasználónkénti, visszavonható tokenekkel (4c): [docs/mcp.md](docs/mcp.md);
 - címkék, jegyzet és beszélőnevek az elemeken; a könyvtár exportja (Markdown vagy JSON); fióktörlés a felhasználó által; kétlépcsős belépés (hitelesítő alkalmazás a Google után, kötelezővé is tehető); meghívó e-mailben (5. kör);
 - kérdezés a felületen belül (6. kör): beszélgetés egy videóról az elem oldalán, és az egész könyvtárról a Keresés oldalon (a saját felvételek nélkül); a választ a futtató modellje írja hivatkozásokkal, a beszélgetés Markdownként letölthető;
+- 8. kör: Megnézendő-lista a YouTube-fiókban (saját „dwyt – megnézendő” lejátszási lista, a YouTube-on tett változásokat a napi szinkron átveszi); megosztás telefonról (telepíthető webalkalmazás, megosztási cél; oldal a választásokkal vagy azonnali indítás); olvasott jelölés és „Olvasatlan” szűrő; gyors döntés a Postaládában (a videó leírása, összefoglaló-előnézet, billentyűk);
 - felület a StockMaster mintájára: bal oldali, becsukható menü, mobilon becsúszó menü, világos és sötét téma, akadálymentes kezelés (billentyűzet, képernyőolvasó, látható fókusz).
 
 ## Fejlesztés

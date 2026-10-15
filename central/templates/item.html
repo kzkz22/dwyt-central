@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import model_select, model_options, speaker_fields, info, llm_rows, num %}
+{% from "_macros.html" import model_select, model_options, speaker_fields, info, llm_rows, num, watch_button, read_button %}
 {% from "_icons.html" import icon %}
 {% block title %}{{ item_title(item) }}{% endblock %}
 {% block content %}
@@ -24,10 +24,13 @@
       {% if item.source.url %}<a class="button secondary small" href="{{ item.source.url }}" rel="noopener noreferrer" target="_blank">{{ icon("external", 15) }}Megnyitás</a>{% endif %}
       {% if transcript %}<a class="button secondary small" href="/elem/{{ item.id }}/atirat/{{ transcript.id }}.txt">{{ icon("download", 15) }}Átirat (TXT)</a>{% endif %}
       {% if summary %}<a class="button secondary small" href="/elem/{{ item.id }}/osszefoglalo/{{ summary.id }}.md">{{ icon("download", 15) }}Összefoglaló (MD)</a>{% endif %}
+      {% if video_id %}{{ watch_button(video_id, on_watch, item_title(item), back, csrf) }}{% endif %}
+      {% if item.read_at %}{{ read_button(item.id, True, "/", csrf) }}{% endif %}
       <form method="post" action="/elem/{{ item.id }}/torles" class="inline confirm push-right" data-confirm="Törlöd az elemet a könyvtáradból?">
         <input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="danger small">{{ icon("trash", 15) }}Törlés</button>
       </form>
     </div>
+    {% if video_id and not watch_ready %}<p class="muted consent-hint">A Megnézendő gomb a YouTube-fiókodban egy <em>dwyt – megnézendő</em> lejátszási listát kezel; az első használatkor a Google-nál engedélyezned kell, hogy a dwyt írhasson a lejátszási listáidba.</p>{% endif %}
   </div>
 </header>
 <nav class="jump" aria-label="Ugrás az oldalon"><a href="#summary">{{ icon("sparkles", 15) }}Összefoglaló</a><a href="#kerdes">{{ icon("chat", 15) }}Kérdezz</a><a href="#sajat">{{ icon("tag", 15) }}Címkék és jegyzet</a><a href="#atirat">{{ icon("file", 15) }}Átirat</a></nav>

@@ -162,7 +162,8 @@
   // page size of the lists: submit on choice (the form is a plain POST without scripts too)
   document.addEventListener("change", function (e) {
     const sel = e.target;
-    if (sel instanceof HTMLSelectElement && sel.hasAttribute("data-autosubmit") && sel.form) sel.form.requestSubmit();
+    const can = sel instanceof HTMLSelectElement || (sel instanceof HTMLInputElement && sel.type === "checkbox");
+    if (can && sel.hasAttribute("data-autosubmit") && sel.form) sel.form.requestSubmit();
   });
   document.addEventListener("change", function (e) {
     const sel = e.target;
@@ -180,8 +181,66 @@
     }
   });
 
+  // ---- lists with keyboard decisions (Postaláda Új / Kész, 19.4) ----
+  // j/k move, Enter opens the title, and every button with data-key="<letter>" in the chosen row is that letter.
+  // The row's place is kept across the reload that follows a button.
+  const POS = "dwyt-keys-pos";
+  function keyRows() {
+    const list = document.querySelector("ul[data-keys]");
+    return list ? Array.from(list.children) : [];
+  }
+  function mark(rows, i, scroll) {
+    rows.forEach((r, n) => r.classList.toggle("focus", n === i));
+    if (scroll && rows[i]) rows[i].scrollIntoView({block: "nearest"});
+  }
+  function current(rows) { return rows.findIndex((r) => r.classList.contains("focus")); }
+  document.addEventListener("keydown", function (e) {
+    if (e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
+    const t = e.target;
+    if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+    if (root.classList.contains("sb-open")) return;
+    const rows = keyRows();
+    if (!rows.length) return;
+    let i = current(rows);
+    const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+    if (key === "j" || key === "k") {
+      i = i < 0 ? 0 : Math.max(0, Math.min(rows.length - 1, i + (key === "j" ? 1 : -1)));
+      mark(rows, i, true);
+      e.preventDefault();
+      return;
+    }
+    if (i < 0) return;
+    if (key === "Enter") {
+      if (t && t.closest && t.closest("a, button")) return;  // a focused link or button does its own thing
+      const link = rows[i].querySelector("a.title[href]");
+      if (link) { e.preventDefault(); window.location.href = link.href; }
+      return;
+    }
+    const button = rows[i].querySelector(`button[data-key="${CSS.escape(key)}"]`);
+    if (!button) return;
+    e.preventDefault();
+    try { sessionStorage.setItem(POS, location.pathname + location.search + "|" + i); } catch (err) { /* blocked */ }
+    if (button.form) button.form.requestSubmit(button); else button.click();
+  });
+  function restoreRow() {
+    const rows = keyRows();
+    if (!rows.length) return;
+    let saved = null;
+    try { saved = sessionStorage.getItem(POS); sessionStorage.removeItem(POS); } catch (err) { /* blocked */ }
+    if (!saved) return;
+    const cut = saved.lastIndexOf("|");
+    if (saved.slice(0, cut) !== location.pathname + location.search) return;
+    mark(rows, Math.min(rows.length - 1, parseInt(saved.slice(cut + 1), 10) || 0), true);
+  }
+
   function init() {
     syncCollapse();
+    restoreRow();
+    document.querySelectorAll("[data-js-hide]").forEach((el) => { el.hidden = true; });
+    // installable on the phone, so dwyt can be a share target (19.2); the worker caches nothing
+    if ("serviceWorker" in navigator && window.isSecureContext) {
+      navigator.serviceWorker.register("/sw.js").catch(() => { /* not available: the site works without it */ });
+    }
     // copy buttons (the install command)
     document.querySelectorAll("[data-copy]").forEach((button) => {
       button.addEventListener("click", () => {

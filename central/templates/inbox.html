@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% from "_macros.html" import job_line %}
-{% from "_macros.html" import pager %}
+{% from "_macros.html" import job_line, pager, watch_button, read_button %}
+{% from "_icons.html" import icon %}
 {% block title %}Postaláda{% endblock %}
 {% block content %}
 <div class="bar">
@@ -18,29 +18,45 @@
 </nav>
 {% if gpu_waiting %}<p class="warn-box">{{ gpu_waiting }} videó helyi Whisperre vár: nincs feliratuk, és a GPU-gép bekapcsolásakor készülnek el.</p>{% endif %}
 {% if not entries %}<p class="card">{% if not followed %}Még nem követsz csatornát; a <a href="/csatornak">Csatornák</a> oldalon veheted fel őket.{% else %}Nincs itt semmi. Az új videók a követett csatornák hírcsatornáiból érkeznek.{% endif %}</p>{% endif %}
-<ul class="items">
+{% if tab == 'uj' and entries %}
+<p class="keys" aria-hidden="true"><span>Billentyűk:</span><span><kbd>j</kbd> <kbd>k</kbd> lépés</span><span><kbd>ö</kbd> összefoglaló kérése</span><span><kbd>m</kbd> megnézendő</span><span><kbd>x</kbd> kihagyás</span></p>
+{% elif tab == 'kesz' %}
+{% if entries %}<p class="keys" aria-hidden="true"><span>Billentyűk:</span><span><kbd>j</kbd> <kbd>k</kbd> lépés</span><span><kbd>Enter</kbd> megnyitás</span><span><kbd>m</kbd> megnézendő</span><span><kbd>x</kbd> elolvastam</span></p>{% endif %}
+<form method="get" action="/postalada" class="filters">
+  <input type="hidden" name="allapot" value="kesz">
+  <label class="choice"><input type="checkbox" name="mind" value="1" data-autosubmit {% if mind %}checked{% endif %}> Az elolvasottak is</label>
+  <button class="secondary small" data-js-hide>Mutasd</button>
+  {% if hidden_read %}<span class="muted">{{ hidden_read }} elolvasott nem látszik</span>{% endif %}
+</form>
+{% endif %}
+<ul class="items"{% if tab in ('uj', 'kesz') %} data-keys{% endif %}>
 {% for e in entries %}
-  <li class="item media">
+  {% set it = item_map.get(e.item_id) %}
+  <li class="item media{{ ' read' if it and it.read_at and tab == 'kesz' }}">
     <a href="https://www.youtube.com/watch?v={{ e.video_id }}" class="thumb" target="_blank" rel="noreferrer noopener"><img src="https://i.ytimg.com/vi/{{ e.video_id }}/mqdefault.jpg" alt="" loading="lazy" referrerpolicy="no-referrer"></a>
     <div>
-      {% if e.item_id %}<a href="/elem/{{ e.item_id }}" class="title">{{ e.title or e.video_id }}</a>{% else %}<span class="title">{{ e.title or e.video_id }}</span>{% endif %}
+      {% if e.item_id %}<a href="/elem/{{ e.item_id }}" class="title">{% if tab == 'kesz' and it and not it.read_at %}<span class="unread-dot" title="olvasatlan"></span><span class="sr-only">Olvasatlan: </span>{% endif %}{{ e.title or e.video_id }}</a>{% else %}<span class="title">{{ e.title or e.video_id }}</span>{% endif %}
       <div class="meta">{{ e.channel.title or e.channel_id }}{% if e.published_at %} · {{ e.published_at|local }}{% endif %}</div>
       {% set j = job_map.get(e.job_id) %}
       {% if j and j.state in ('queued', 'running') %}<div class="meta">{{ job_line(j, now) }}{% if j.state == 'queued' and j.error %} · {{ j.error }}{% endif %}</div>
       {% elif j and j.state == 'failed' %}<div class="meta error-text">{{ j.error }}</div>
       {% elif e.state == 'failed' and not j %}<div class="meta error-text">A munkája megszűnt (például törölted az elemet). Az Újra gombbal újrakérheted.</div>{% endif %}
+      {% if tab == 'kesz' and it and previews.get(it.current_summary_id) %}<p class="preview">{{ previews[it.current_summary_id] }}</p>
+      {% elif tab != 'kesz' and descriptions.get(e.video_id) %}<p class="desc"><b>A videó leírása:</b> {{ descriptions[e.video_id] }}</p>{% endif %}
       <div class="actions">
         {% if e.state in ('new', 'skipped', 'short', 'failed') %}
         <form method="post" action="/postalada/{{ e.id }}/keres" class="inline">
-          <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="vissza" value="{{ tab }}">
-          <button class="small">{{ 'Újra' if e.state == 'failed' else 'Összefoglaló kérése' }}</button>
+          <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="vissza" value="{{ back }}">
+          <button class="small" data-key="ö">{% if e.state != 'failed' %}{{ icon("sparkles", 15) }}{% endif %}{{ 'Újra' if e.state == 'failed' else 'Összefoglaló kérése' }}</button>
         </form>
         {% endif %}
+        {% if tab in ('uj', 'kesz') %}{{ watch_button(e.video_id, e.video_id in watch, e.title, back, csrf) }}{% endif %}
         {% if e.state == 'new' %}
         <form method="post" action="/postalada/{{ e.id }}/kihagy" class="inline">
-          <input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="secondary small">Kihagyás</button>
+          <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="vissza" value="{{ back }}"><button class="secondary small" data-key="x">Kihagyás</button>
         </form>
         {% endif %}
+        {% if tab == 'kesz' and it %}{{ read_button(it.id, it.read_at is not none, back, csrf) }}{% endif %}
       </div>
     </div>
   </li>

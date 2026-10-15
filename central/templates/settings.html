@@ -1,15 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Beállítások
-<section class="card" id="fiok">
-  <h2>Fiók törlése</h2>
-  <p>Törlődik a fiókod, a könyvtárad (elemek, átiratok, összefoglalók, fordítások, címkék, jegyzetek), a futtatóid, a csatornáid és a postaládád, az értesítési beállításaid és az MCP-tokenjeid. A YouTube-hozzáférést a Google-nél is visszavonjuk. Más felhasználóknál a tőled átvett eredmények megmaradnak, név nélkül. Előtte érdemes exportálni.</p>
-  <form method="post" action="/beallitasok/fiok-torlese" class="filters confirm" data-confirm="Biztosan törlöd a fiókodat? Ez nem vonható vissza.">
-    <input type="hidden" name="csrf_token" value="{{ csrf }}">
-    <input type="search" name="email" placeholder="a megerősítéshez írd be: {{ viewer.email }}" aria-label="E-mail-cím a megerősítéshez" autocomplete="off" required>
-    <button class="danger small">Fiók végleges törlése</button>
-  </form>
-</section>
-{% endblock %}
+{% block title %}Beállítások{% endblock %}
 {% block content %}
 <h1>Beállítások</h1>
 {% if saved %}<p class="notice" role="status">Mentve.</p>{% endif %}
@@ -28,6 +18,14 @@
     <label>Gépi felirat ezeken a nyelveken mégis jó (nem kötelező; például <code>en</code>, ha az angol gépi felirat neked elég)
       <input name="captions_auto_langs" value="{{ captions_auto_langs }}" maxlength="100" placeholder="en, de"></label>
     <p class="muted">Csatornánként a Csatornák oldalon, egy videónál az Új átirat oldalon eltérhetsz ettől. Felhős átírásnál minden átírás pénzbe kerül a saját AssemblyAI-fiókodon; a feliratos videóknál ez megspórolható. Ha nincs megfelelő felirat, és a géped vagy a felhő sem érhető el, a munka vár: magától nem vált a gépi feliratra.</p>
+  </fieldset>
+  <fieldset class="captions-policy" id="megosztas">
+    <legend>Megosztás telefonról</legend>
+    <p class="muted">Ha a dwyt-ot telepíted a telefonod kezdőképernyőjére (a böngésző menüjében: „Telepítés” vagy „Hozzáadás a kezdőképernyőhöz”), a YouTube-alkalmazás Megosztás menüjében megjelenik a dwyt. Mi történjen, ha oda megosztasz egy videót?</p>
+    {% for key, label in share_modes.items() %}
+    <label class="choice policy"><input type="radio" name="share_mode" value="{{ key }}" {% if share_mode == key %}checked{% endif %}>
+      <span><strong>{{ label[0] }}</strong><br><span class="muted">{{ label[1] }}</span></span></label>
+    {% endfor %}
   </fieldset>
   <p><button>Mentés</button></p>
 </form>
