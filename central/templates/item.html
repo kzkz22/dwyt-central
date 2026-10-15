@@ -41,6 +41,18 @@
   {% if summary %}<a class="button secondary small" href="/elem/{{ item.id }}/osszefoglalo/{{ summary.id }}.md">Letöltés (MD)</a>{% endif %}
   </div>
   {% if summary %}
+  {% if speech %}
+  {# 19.7: the browser's own voice reads the summary; shown by speak.js only where speech synthesis exists #}
+  <div class="speak" data-speak hidden>
+    <button type="button" class="secondary small" data-speak-play>{{ icon("volume", 15) }}<span data-speak-label>Felolvasás</span></button>
+    <button type="button" class="secondary small icon-only" data-speak-stop title="Leállítás" aria-label="Leállítás" hidden>{{ icon("stop", 15) }}</button>
+    <label class="speak-opt">Tempó <select data-speak-rate>{% for r in ("0.8", "0.9", "1", "1.1", "1.25", "1.5", "1.75") %}<option value="{{ r }}" {% if r == "1" %}selected{% endif %}>{{ r|replace(".", ",") }}×</option>{% endfor %}</select></label>
+    <label class="speak-opt" data-speak-voices hidden>Hang <select data-speak-voice></select></label>
+    <span class="muted" data-speak-status aria-live="polite"></span>
+    <p class="muted speak-help" data-speak-novoice hidden>Ezen az eszközön nincs magyar hang, ezért a felolvasás idegen kiejtéssel szól. Windowson: Gépház → Idő és nyelv → Beszéd → Hangok hozzáadása → Magyar (vagy az Edge böngésző, amelyben a Noémi és Tamás hang érhető el). iPhone-on: Beállítások → Kisegítő lehetőségek → Felolvasott tartalom → Hangok → Magyar. Androidon: Beállítások → Szövegfelolvasás → a Google-hangok magyar csomagja.</p>
+  </div>
+  <script type="application/json" id="speech-text">{{ speech|tojson }}</script>
+  {% endif %}
   <div class="summary summary-text">{{ summary_html }}</div>
   <div class="meta">{{ summary.model_used or summary.model or summary.role }}{% if summary.model_used and summary.model and summary.model_used != summary.model %} ({{ summary.model }} néven){% endif %}{% if summary_reused %} · <span class="badge">átvett</span>{% endif %} · {{ summary.created_at|local }}{% if summary.chunked %} · részenként{% endif %}
   {{ llm_rows(summary, [("Bemenő szöveg", num(summary.input_chars) ~ " karakter" if summary.input_chars else ""), ("Részenként", "igen" if summary.chunked else "")]) }}
@@ -203,4 +215,5 @@
   </details>
 </section>
 {% endif %}
+{% if speech %}<script src="{{ asset('speak.js') }}" defer></script>{% endif %}
 {% endblock %}

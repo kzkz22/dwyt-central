@@ -219,3 +219,61 @@ def chat_html(text: str, ts_link: Callable[[int], tuple[str, bool]] | None = Non
         i += 1
     flush()
     return Markup("\n".join(html))
+
+
+# ---- reading a summary aloud (decision 19.7): plain sentences for the browser's speech synthesis -------------------
+
+_MD_LINK = re.compile(r"\[([^\]\n]+)\]\((?:[^)\s]+)\)")
+_BARE_TS = re.compile(r"\(?\b(?:\d{1,2}:)?[0-5]?\d:[0-5]\d\b\)?")
+_SENTENCE_END = re.compile(r"(?<=[.!?…])\s+")
+SPEECH_CHUNK = 160  # some browsers stop a long utterance after ~15 s: speak at most this much at once
+
+
+def _speech_line(line: str) -> str:
+    line = _MD_LINK.sub(r"\1", line)
+    line = _TS.sub("", line)
+    line = _BARE_TS.sub("", line)
+    line = _BOLD.sub(r"\1", line)
+    line = _CODE.sub(r"\1", line)
+    line = line.replace("*", "").replace("_", " ")
+    line = re.sub(r"\(\s*[,;–-]?\s*\)", "", line)
+    line = re.sub(r"\s+([,.;:!?])", r"\1", line)
+    return " ".join(line.split())
+
+
+def _split_long(sentence: str, limit: int) -> list[str]:
+    out: list[str] = []
+    while len(sentence) > limit:
+        cut = max(sentence.rfind(", ", 0, limit), sentence.rfind("; ", 0, limit))
+        cut = cut + 1 if cut > limit // 3 else (sentence.rfind(" ", 0, limit) if " " in sentence[:limit] else limit)
+        out.append(sentence[:cut].strip())
+        sentence = sentence[cut:].strip()
+    return out + ([sentence] if sentence else [])
+
+
+def speech_chunks(text: str, limit: int = SPEECH_CHUNK) -> list[str]:
+    """A summary (the Markdown subset) as short plain pieces to read aloud: markup, links and timestamps left out,
+    headings and list items closed with a full stop so the voice pauses, nothing longer than `limit`."""
+    sentences: list[str] = []
+    for raw in text.split("\n"):
+        line = raw.strip()
+        if not line or _TABLE_SEP.match(line):
+            continue
+        heading = _HEADING.match(line)
+        listed = _UL.match(line) or _OL.match(line)
+        if heading:
+            line = heading.group(2)
+        elif line.startswith("|"):
+            line = ", ".join(c for c in _cells(line) if c)
+        elif listed:
+            line = listed.group(listed.lastindex)
+        line = _speech_line(line)
+        if not line:
+            continue
+        if not line.endswith((".", "!", "?", "…", ":")):
+            line += "."
+        sentences.extend(s for s in _SENTENCE_END.split(line) if s)
+    chunks: list[str] = []
+    for sentence in sentences:
+        chunks.extend(_split_long(sentence, limit))
+    return chunks

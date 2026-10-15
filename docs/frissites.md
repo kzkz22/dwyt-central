@@ -93,6 +93,12 @@ Egyszeri lépések, a fenti frissítés **előtt**:
 3. A téma (világos / sötét) és a becsukott menü böngészőnként tárolódik; először a rendszer témáját követi.
 4. Ha az Apache-on saját `Content-Security-Policy` fejlécet állítottál be, abban is maradjon `default-src 'self'` (a betűtípus és az ikonok a központról jönnek, külső címről semmi).
 
+## Frissítés a 0.17.3-ra (felolvasott összefoglaló)
+
+1. A fenti frissítés; migráció nincs, a kliensen nem kell telepíteni semmit.
+2. Az elem oldalán az összefoglaló fölött „Felolvasás” gomb, tempó- és hangválasztó (a választást a böngésző megjegyzi). A böngésző saját hangja olvas: a legjobb magyar hang Windowson az Edge-ben (Noémi, Tamás), Androidon a Google magyar hangja, iPhone-on az Apple magyar hangja (a jobb változat a beállításokban letölthető). Ha az eszközön nincs magyar hang, az oldal megmondja, hol lehet hozzáadni.
+3. Telefonon a felolvasás képernyőzáráskor vagy appváltáskor leállhat; a háttérben is szóló, letölthető hangfájl későbbi feladat.
+
 ## Frissítés a 0.17.2-re (gombok a Könyvtár soraiban, Csatornák elrendezése)
 
 1. A fenti frissítés; migráció nincs.

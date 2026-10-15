@@ -821,7 +821,7 @@ def item_page(request: Request, item_id: int, atirat: int | None = None, nezet: 
             item.read_at = utcnow()
     for p in paragraphs:
         p["speaker"] = personal.rename(p["speaker"], names)
-    summary_html = None
+    summary_html, speech = None, []
     if summary is not None:
         starts = sorted(p["start"] for p in main_paragraphs)
 
@@ -831,7 +831,9 @@ def item_page(request: Request, item_id: int, atirat: int | None = None, nezet: 
                 return url, True
             anchor = max((st for st in starts if st <= seconds + 0.5), default=starts[0] if starts else 0)
             return f"/elem/{item.id}#t{int(anchor)}", False
-        summary_html = render.summary_html(personal.rename_text(summary.text, summary_names or main_names), link)
+        summary_text = personal.rename_text(summary.text, summary_names or main_names)
+        summary_html = render.summary_html(summary_text, link)
+        speech = render.speech_chunks(summary_text)  # read aloud by the browser (19.7)
     translating = any(j.kind == "translate" for j in status["active_jobs"])
     summarizing = any(j.kind == "summarize" for j in status["active_jobs"])
     view = nezet if nezet in ("eredeti", "magyar", "mindketto") else ("mindketto" if translation else "eredeti")
@@ -839,7 +841,7 @@ def item_page(request: Request, item_id: int, atirat: int | None = None, nezet: 
         view = "eredeti"
     role_of = "public" if item.is_public else "private"
     return _render(request, "item.html", viewer, item=item, transcripts=transcripts, transcript=chosen,
-                   paragraphs=paragraphs, links=links, summary=summary, summary_html=summary_html,
+                   paragraphs=paragraphs, links=links, summary=summary, summary_html=summary_html, speech=speech,
                    summary_reused=summary_reused, summary_versions=versions, translation=translation,
                    view=view, reused=reused, translating=translating, summarizing=summarizing,
                    summary_picker=_picker(runners, role_of, "summarize"),
