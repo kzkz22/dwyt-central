@@ -592,8 +592,12 @@ select { max-width: 100%; }
 .modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin: 6px 0 2px; }
 .modes button { text-align: left; border: 1px solid hsl(var(--border)); border-radius: 10px; padding: 10px 12px; display: flex;
   flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 3px; background: hsl(var(--card));
-  color: hsl(var(--foreground)); font-weight: 400; min-height: 0; }
-.modes button.on { border: 2px solid hsl(var(--primary)); background: hsl(var(--primary) / .06); }
+  color: hsl(var(--foreground)); font-weight: 400; min-height: 0; min-width: 0; white-space: normal; line-height: 1.35;
+  overflow-wrap: anywhere; }
+.modes button .muted { display: block; }
+.modes button:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
+.modes button.on, .modes button.on:hover { border-color: hsl(var(--primary)); box-shadow: inset 0 0 0 1px hsl(var(--primary));
+  background: hsl(var(--primary) / .06); }
 .rs-field { display: grid; grid-template-columns: minmax(180px, 260px) 1fr; gap: 6px 16px; padding: 11px 0;
   border-top: 1px solid hsl(var(--border)); align-items: start; }
 .rs-field:first-of-type { border-top: 0; }

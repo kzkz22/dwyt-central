@@ -210,3 +210,12 @@ def test_new_runner_tabs(alice):
     assert "Párosítás kóddal" in page and "Jóváhagyás" in page and "Telepítőparancs kérése" not in page
     page = alice.get("/futtatok").text  # no runner yet: the install command first
     assert "Telepítőparancs kérése" in page and "/futtato.sh" in page
+
+
+def test_mode_cards_wrap_their_text():
+    """Buttons do not wrap by default (white-space: nowrap); the mode cards' long texts must."""
+    from pathlib import Path
+    css = (Path(__file__).parent.parent / "central" / "static" / "style.css").read_text(encoding="utf-8")
+    rule = css[css.index(".modes button {"):]
+    rule = rule[:rule.index("}")]
+    assert "white-space: normal" in rule and "min-width: 0" in rule
