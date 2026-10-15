@@ -113,7 +113,7 @@ def test_library_watch_filter_toggle_and_unlink(alice, bob, emails, fake_google)
     give_consent(alice, fake_google, watch(alice, VIDEO))
     page = alice.get("/?szures=megnezendo").text
     assert f'href="/elem/{first}"' in page and f'href="/elem/{second}"' not in page
-    assert "badge cloud\">megnézendő" in page and "side-toggle" in page
+    assert "badge cloud\">megnézendő" in page and "side-actions" in page
     assert "megnézendő" not in bob.get("/?szures=megnezendo").text.split("<ul")[-1]  # strictly per user
     assert post(alice, "/csatornak/youtube/levalasztas").status_code == 303
     assert rows("SELECT count(*) FROM watch_later")[0][0] == 0  # dwyt's copy goes, YouTube's playlist stays
@@ -279,3 +279,23 @@ def test_migration_0018_rechecks_feeds_whose_videos_have_no_description(alice, e
     fake_youtube.feeds[GARDEN] = [("vid-new-001", "Metszés", iso(-1), "Ősszel metszünk.")]
     poll()
     assert "A videó leírása:</b> Ősszel metszünk." in alice.get("/postalada").text
+
+
+def test_library_rows_mark_unread_and_delete_in_place(alice, anon):
+    token = pair_runner(alice, anon)
+    first = submit(alice)
+    finish(anon, token)
+    second = submit(alice, video="abcdefghijk")
+    finish(anon, token)
+    alice.get(f"/elem/{first}")  # read
+    page = alice.get("/?szures=&oldal=1").text
+    assert page.count('class="side-actions"') == 2
+    assert 'title="Olvasatlannak jelölés"' in page and 'title="Olvasottnak jelölés"' in page
+    assert f'action="/elem/{second}/torles"' in page
+    r = post(alice, f"/elem/{first}/olvasott", {"olvasott": "0", "vissza": "/?oldal=1"})
+    assert r.headers["location"] == "/?oldal=1" and rows("SELECT count(*) FROM items WHERE read_at IS NULL")[0][0] == 2
+    r = post(alice, f"/elem/{second}/torles", {"vissza": "/?szures=olvasatlan"})
+    assert r.headers["location"] == "/?szures=olvasatlan"
+    assert rows("SELECT id FROM items") == [(first,)]
+    r = post(alice, f"/elem/{first}/torles", {"vissza": f"/elem/{first}"})  # its own page is gone: to the library
+    assert r.headers["location"] == "/"

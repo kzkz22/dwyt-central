@@ -984,14 +984,16 @@ def item_status(request: Request, item_id: int, viewer: Viewer = Depends(current
 
 
 @app.post("/elem/{item_id}/torles")
-async def delete_item(item_id: int, viewer: Viewer = Depends(authed_post)):
+async def delete_item(request: Request, item_id: int, viewer: Viewer = Depends(authed_post)):
+    back = _safe_back((await request.form()).get("vissza"), "/")
+
     def remove() -> None:
         with db.user_session(viewer.id) as s:
             item = s.get(Item, item_id)
             if item is not None:
                 s.delete(item)
     await run_in_threadpool(remove)
-    return _redirect("/")
+    return _redirect(back if not back.startswith(f"/elem/{item_id}") else "/")
 
 
 def _chosen_model(form, runners: list[Runner], item: Item) -> tuple[str | None, str | None]:

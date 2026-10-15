@@ -93,6 +93,12 @@ Egyszeri lépések, a fenti frissítés **előtt**:
 3. A téma (világos / sötét) és a becsukott menü böngészőnként tárolódik; először a rendszer témáját követi.
 4. Ha az Apache-on saját `Content-Security-Policy` fejlécet állítottál be, abban is maradjon `default-src 'self'` (a betűtípus és az ikonok a központról jönnek, külső címről semmi).
 
+## Frissítés a 0.17.2-re (gombok a Könyvtár soraiban, Csatornák elrendezése)
+
+1. A fenti frissítés; migráció nincs.
+2. A Könyvtár minden során három kis ikon: Megnézendő (YouTube-videónál), olvasott / olvasatlan, törlés (megerősítéssel); utána ugyanoda tér vissza a lista.
+3. A Csatornák oldalon a beállítások 1400 képpontnál keskenyebb ablakban (vagy nagyított böngészőben) a csatorna neve alá kerülnek, így a név nem nyomódik össze.
+
 ## Frissítés a 0.17.1-re (a postaláda régebbi videóinak leírása)
 
 1. A fenti frissítés; a 0018-as migráció magától lefut.

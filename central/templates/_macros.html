@@ -88,7 +88,7 @@
 <form method="post" action="/megnezendo/{{ vid }}" class="inline watch-form {{ cls }}">
   <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="be" value="{{ '0' if on else '1' }}">
   <input type="hidden" name="vissza" value="{{ back }}"><input type="hidden" name="cim" value="{{ (title or '')[:300] }}">
-  <button class="small {{ 'on' if on else 'secondary' }}" data-key="m" aria-pressed="{{ 'true' if on else 'false' }}" title="{{ 'Levétel a YouTube-os megnézendő listáról' if on else 'Megnézendő: a YouTube-fiókod dwyt – megnézendő listájára' }}">{{ icon("bookmark", 15, "filled" if on else "") }}{% if label %}{{ 'A megnézendő listán' if on else 'Megnézendő' }}{% else %}<span class="sr-only">{{ 'A megnézendő listán' if on else 'Megnézendő' }}</span>{% endif %}</button>
+  <button class="small {{ 'on' if on else 'secondary' }}{{ ' icon-only' if not label }}" data-key="m" aria-pressed="{{ 'true' if on else 'false' }}" title="{{ 'Levétel a YouTube-os megnézendő listáról' if on else 'Megnézendő: a YouTube-fiókod dwyt – megnézendő listájára' }}">{{ icon("bookmark", 15, "filled" if on else "") }}{% if label %}{{ 'A megnézendő listán' if on else 'Megnézendő' }}{% else %}<span class="sr-only">{{ 'A megnézendő listán' if on else 'Megnézendő' }}</span>{% endif %}</button>
 </form>
 {%- endmacro %}
 
@@ -99,4 +99,22 @@
   <input type="hidden" name="vissza" value="{{ back }}">
   <button class="{{ cls }}" data-key="{{ 'u' if read else 'x' }}">{{ icon("check", 15) }}{{ 'Olvasatlannak jelölés' if read else 'Elolvastam' }}</button>
 </form>
+{%- endmacro %}
+
+
+{# The small icon buttons beside a Library row: Megnézendő (YouTube videos), read / unread, delete. #}
+{% macro item_side_actions(item, vid, on_watch, title, back, csrf) -%}
+<div class="side-actions">
+  {% if vid %}{{ watch_button(vid, on_watch, title, back, csrf, label=False) }}{% endif %}
+  <form method="post" action="/elem/{{ item.id }}/olvasott" class="inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="olvasott" value="{{ '0' if item.read_at else '1' }}">
+    <input type="hidden" name="vissza" value="{{ back }}">
+    {% set label = 'Olvasatlannak jelölés' if item.read_at else 'Olvasottnak jelölés' %}
+    <button class="secondary small icon-only" title="{{ label }}" aria-label="{{ label }}: {{ title }}">{{ icon("mail" if item.read_at else "mail-open", 15) }}</button>
+  </form>
+  <form method="post" action="/elem/{{ item.id }}/torles" class="inline confirm" data-confirm="Törlöd az elemet a könyvtáradból?">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="vissza" value="{{ back }}">
+    <button class="danger small icon-only" title="Törlés" aria-label="Törlés: {{ title }}">{{ icon("trash", 15) }}</button>
+  </form>
+</div>
 {%- endmacro %}

@@ -64,7 +64,7 @@ inbox Új shows `channel_videos.description` (feed media:description), Kész the
 unless `mind=1`; keyboard in app.js (`ul[data-keys]`, buttons with `data-key`); sharing from the phone:
 `/manifest.webmanifest` (share_target GET /megosztas), `/sw.js` (caches nothing), `users.share_mode` ask | start (start
 only with Sec-Fetch-Site none/same-origin), `share.html`, a signed-out share continues after sign-in (`dwyt_after`
-cookie). Open: passkeys (not needed for now).
+cookie); 0.17.2: Library rows carry `_macros.item_side_actions` (watch, read/unread, delete with `vissza`). Open: passkeys (not needed for now).
 Source of truth: `dwyt-docs` (`docs/terv.md`, `docs/protokoll.md`). Install: `docs/telepites.md`; tests need PostgreSQL
 (throw-away cluster from tests/pgcluster.py, or TEST_DATABASE_URL as superuser).
 License: AGPL-3.0.

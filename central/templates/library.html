@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import pager, watch_button %}
+{% from "_macros.html" import pager, item_side_actions %}
 {% block title %}Könyvtár{% endblock %}
 {% block content %}
 <div class="bar"><h1>Könyvtár</h1><a class="button" href="/uj">Új átirat</a></div>
@@ -41,7 +41,7 @@
       {% if item_tags.get(item.id) %}<div class="meta">{% for t in item_tags[item.id] %}<a class="badge" href="/?cimke={{ t|urlencode }}">{{ t }}</a> {% endfor %}</div>{% endif %}
       {% if previews.get(item.current_summary_id) %}<p class="preview">{{ previews[item.current_summary_id] }}</p>{% endif %}
     </div>
-    {% if vid %}{{ watch_button(vid, vid in watch, item_title(item), back, csrf, label=False, cls="side-toggle") }}{% endif %}
+    {{ item_side_actions(item, vid, vid and vid in watch, item_title(item), back, csrf) }}
   </li>
 {% endfor %}
 </ul>
