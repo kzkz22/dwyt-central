@@ -845,6 +845,8 @@ def item_page(request: Request, item_id: int, atirat: int | None = None, nezet: 
                    summary_reused=summary_reused, summary_versions=versions, translation=translation,
                    view=view, reused=reused, translating=translating, summarizing=summarizing,
                    summary_picker=_picker(runners, role_of, "summarize"),
+                   summary_trial=bool(summary and modelinfo.is_trial(summary.model_used or summary.model,
+                                                                     modelinfo.merged(runners))),
                    translate_picker=_picker(runners, role_of, "translate"), modes=MODES, cloud_models=CLOUD_MODELS,
                    local_models=LOCAL_MODELS, can_rerun=can_rerun, tags=tags, names=names, labels=labels,
                    translated=translated, item_language=item_language,

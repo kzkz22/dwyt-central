@@ -687,3 +687,8 @@ button.on:hover { background: hsl(var(--primary) / .16); }
   .speak-main { min-width: 0; }
   .speak-main [data-speak-label] { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 }
+
+/* a summary written by AssemblyAI's small trial model (19.9) */
+.trial-note { display: flex; gap: 8px; align-items: flex-start; margin: 10px 0 4px; padding: 8px 12px; font-size: .85rem;
+  border: 1px solid hsl(var(--warning-line)); background: hsl(var(--warning-bg)); border-radius: 8px; }
+.trial-note .icon { flex-shrink: 0; margin-top: 2px; }

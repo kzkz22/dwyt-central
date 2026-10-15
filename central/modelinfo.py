@@ -27,7 +27,7 @@ def _clean(block: Any) -> dict[str, Any]:
         value = block.get(key)
         if isinstance(value, int) and not isinstance(value, bool) and 0 < value < 100_000_000:
             out[key] = value
-    for key in ("vision", "thinking"):
+    for key in ("vision", "thinking", "trial"):
         if isinstance(block.get(key), bool):
             out[key] = block[key]
     return out
@@ -102,8 +102,20 @@ def short(name: str, info: dict[str, Any] | None) -> str:
     if not info:
         return name
     label = info.get("target_label") or ""
-    parts = [p for p in (label, thinking_text(info)) if p]
+    parts = [p for p in (label, thinking_text(info), "próba-modell" if info.get("trial") else "") if p]
     return f"{name} – {', '.join(parts)}" if parts else name
+
+
+# AssemblyAI's small trial model (decision 19.9): a summary it wrote says so on the item page. The runner marks it in
+# its model info (trial: true); the name is also known here for summaries made before or by another runner.
+TRIAL_MODELS = {"qwen3.5-4b-32k-fast"}
+
+
+def is_trial(model: str | None, info: dict[str, dict[str, Any]] | None = None) -> bool:
+    if not model:
+        return False
+    names = [m.strip() for m in model.split(",")]  # model_used may list several
+    return any(n in TRIAL_MODELS or bool((info or {}).get(n, {}).get("trial")) for n in names)
 
 
 def hint(name: str, info: dict[str, Any] | None) -> str:

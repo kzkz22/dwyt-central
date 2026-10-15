@@ -62,6 +62,7 @@
   <script type="application/json" id="speech-text">{{ speech|tojson }}</script>
   {% endif %}
   <div class="summary summary-text">{{ summary_html }}</div>
+  {% if summary_trial %}<p class="trial-note">{{ icon("info", 15) }}<span>Próba-modellel készült (AssemblyAI · Qwen3.5 4B): a magyar szöveg gyengébb lehet, a számokat és a neveket érdemes az átiratban ellenőrizni. Jobb modellel lent, az <strong>Új összefoglaló</strong> alatt kérheted újra.</span></p>{% endif %}
   <div class="meta">{{ summary.model_used or summary.model or summary.role }}{% if summary.model_used and summary.model and summary.model_used != summary.model %} ({{ summary.model }} néven){% endif %}{% if summary_reused %} · <span class="badge">átvett</span>{% endif %} · {{ summary.created_at|local }}{% if summary.chunked %} · részenként{% endif %}
   {{ llm_rows(summary, [("Bemenő szöveg", num(summary.input_chars) ~ " karakter" if summary.input_chars else ""), ("Részenként", "igen" if summary.chunked else "")]) }}
   {% if summary.id != item.current_summary_id %} · <strong>nem ez az aktuális</strong>{% endif %}{% if summary.transcript_id != item.main_transcript_id %} · másik átiratból készült{% endif %}</div>

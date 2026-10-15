@@ -93,6 +93,11 @@ Egyszeri lépések, a fenti frissítés **előtt**:
 3. A téma (világos / sötét) és a becsukott menü böngészőnként tárolódik; először a rendszer témáját követi.
 4. Ha az Apache-on saját `Content-Security-Policy` fejlécet állítottál be, abban is maradjon `default-src 'self'` (a betűtípus és az ikonok a központról jönnek, külső címről semmi).
 
+## Frissítés a 0.17.5-re (próba-modell jelzése)
+
+1. A fenti frissítés; migráció nincs.
+2. A dwyt-runner 0.12 új felhasználóknak Felhő módban azt ajánlja, hogy az összefoglalót is az AssemblyAI írja, egy kis próba-modellel (`qwen3.5-4b-32k-fast`). Az ezzel készült összefoglaló alatt az elem oldalán sárga sor figyelmeztet, hogy a magyar szöveg gyengébb lehet, és jobb modellel újra kérhető; a modellválasztókban a név mellett „próba-modell” áll.
+
 ## Frissítés a 0.17.4-re (felolvasás: lejátszósáv)
 
 1. A fenti frissítés; migráció nincs.
