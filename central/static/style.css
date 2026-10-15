@@ -662,10 +662,28 @@ button.on:hover { background: hsl(var(--primary) / .16); }
   .share-thumb { width: 100%; max-width: 320px; }
 }
 
-/* reading the summary aloud (19.7) */
-.speak { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 12px; }
+/* reading the summary aloud (19.7, 19.8): one compact player row, the settings under it */
+.speak { margin: 4px 0 14px; padding: 10px 12px; border: 1px solid hsl(var(--border)); border-radius: var(--radius);
+  background: hsl(var(--muted) / .35); }
 .speak[hidden] { display: none; }
+.speak-bar { display: flex; align-items: center; gap: 6px 8px; flex-wrap: wrap; }
+.speak-main { min-width: 7.5rem; }
+.speak-main .speak-ico-pause, .speak-main.playing .speak-ico-play { display: none; }
+.speak-main.playing .speak-ico-pause { display: inline-block; }
+.speak-seek { flex: 1 1 8rem; min-width: 6rem; margin: 0; accent-color: hsl(var(--primary)); padding: 0; min-height: 32px; }
+.speak-pos { font-size: .8rem; font-variant-numeric: tabular-nums; min-width: 3.5rem; text-align: right; }
+.speak-opts { margin-top: 8px; }
 .speak-opt { display: inline-flex; align-items: center; gap: 6px; font-size: .85rem; margin: 0; font-weight: 400; }
-.speak-opt select { width: auto; margin: 0; min-height: 32px; padding: 4px 28px 4px 10px; font-size: .85rem; max-width: 14rem; }
-.speak-opt[hidden] { display: none; }
-.speak-help { flex-basis: 100%; margin: 0; font-size: .85rem; }
+.speak-opt select { width: auto; margin: 0; min-height: 32px; padding: 4px 28px 4px 10px; font-size: .85rem; max-width: 12rem; }
+.speak-opt[hidden], .speak-now[hidden] { display: none; }
+.speak-now { margin: 8px 0 0; font-size: .85rem; color: hsl(var(--muted-foreground)); border-left: 3px solid hsl(var(--primary));
+  padding-left: 8px; }
+.speak-help { margin: 8px 0 0; font-size: .85rem; }
+.narrow-only { display: none; }
+@media (max-width: 600px) {
+  .wide-only { display: none; }
+  .narrow-only { display: inline; }
+  .speak { padding: 8px 10px; }
+  .speak-main { min-width: 0; }
+  .speak-main [data-speak-label] { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+}

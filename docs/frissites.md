@@ -93,6 +93,12 @@ Egyszeri lépések, a fenti frissítés **előtt**:
 3. A téma (világos / sötét) és a becsukott menü böngészőnként tárolódik; először a rendszer témáját követi.
 4. Ha az Apache-on saját `Content-Security-Policy` fejlécet állítottál be, abban is maradjon `default-src 'self'` (a betűtípus és az ikonok a központról jönnek, külső címről semmi).
 
+## Frissítés a 0.17.4-re (felolvasás: lejátszósáv)
+
+1. A fenti frissítés; migráció nincs.
+2. A felolvasásnak lejátszósávja van: előző / következő mondat, csúszka (bárhonnan indítható, húzás közben látszik, melyik mondatnál indul), az éppen felolvasott mondat a sáv alatt, „Elejére” gomb, tempó 2×-ig. A böngésző összefoglalónként megjegyzi, hol tartottál, és onnan folytatja.
+3. Keskeny kijelzőn a gombok ikonosak, a Markdown-letöltés is ikon az Összefoglaló címe mellett.
+
 ## Frissítés a 0.17.3-ra (felolvasott összefoglaló)
 
 1. A fenti frissítés; migráció nincs, a kliensen nem kell telepíteni semmit.

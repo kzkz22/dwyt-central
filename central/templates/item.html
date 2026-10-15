@@ -38,17 +38,25 @@
 
 <section class="card" id="summary">
   <div class="bar"><h2>Összefoglaló</h2>
-  {% if summary %}<a class="button secondary small" href="/elem/{{ item.id }}/osszefoglalo/{{ summary.id }}.md">Letöltés (MD)</a>{% endif %}
+  {% if summary %}<a class="button secondary small" href="/elem/{{ item.id }}/osszefoglalo/{{ summary.id }}.md" title="Letöltés Markdownként">{{ icon("download", 15) }}<span class="wide-only">Letöltés (MD)</span><span class="sr-only narrow-only">Letöltés Markdownként</span></a>{% endif %}
   </div>
   {% if summary %}
   {% if speech %}
   {# 19.7: the browser's own voice reads the summary; shown by speak.js only where speech synthesis exists #}
-  <div class="speak" data-speak hidden>
-    <button type="button" class="secondary small" data-speak-play>{{ icon("volume", 15) }}<span data-speak-label>Felolvasás</span></button>
-    <button type="button" class="secondary small icon-only" data-speak-stop title="Leállítás" aria-label="Leállítás" hidden>{{ icon("stop", 15) }}</button>
-    <label class="speak-opt">Tempó <select data-speak-rate>{% for r in ("0.8", "0.9", "1", "1.1", "1.25", "1.5", "1.75") %}<option value="{{ r }}" {% if r == "1" %}selected{% endif %}>{{ r|replace(".", ",") }}×</option>{% endfor %}</select></label>
-    <label class="speak-opt" data-speak-voices hidden>Hang <select data-speak-voice></select></label>
-    <span class="muted" data-speak-status aria-live="polite"></span>
+  <div class="speak" data-speak data-speak-key="{{ item.id }}-{{ summary.id }}" hidden>
+    <div class="speak-bar">
+      <button type="button" class="secondary small icon-only" data-speak-prev title="Előző mondat" aria-label="Előző mondat">{{ icon("skip-back", 15) }}</button>
+      <button type="button" class="small speak-main" data-speak-play aria-label="Felolvasás">{{ icon("play", 15, "speak-ico-play") }}{{ icon("pause", 15, "speak-ico-pause") }}<span data-speak-label>Felolvasás</span></button>
+      <button type="button" class="secondary small icon-only" data-speak-next title="Következő mondat" aria-label="Következő mondat">{{ icon("skip-forward", 15) }}</button>
+      <input type="range" class="speak-seek" data-speak-seek min="1" max="{{ speech|length }}" value="1" step="1" aria-label="Hol tartson a felolvasás (mondat)">
+      <span class="muted speak-pos" data-speak-status aria-live="polite">1 / {{ speech|length }}</span>
+    </div>
+    <div class="speak-bar speak-opts">
+      <label class="speak-opt">Tempó <select data-speak-rate>{% for r in ("0.8", "0.9", "1", "1.1", "1.25", "1.5", "1.75", "2") %}<option value="{{ r }}" {% if r == "1" %}selected{% endif %}>{{ r|replace(".", ",") }}×</option>{% endfor %}</select></label>
+      <label class="speak-opt" data-speak-voices hidden>Hang <select data-speak-voice></select></label>
+      <button type="button" class="secondary small" data-speak-stop hidden>{{ icon("stop", 15) }}Elejére</button>
+    </div>
+    <p class="speak-now" data-speak-now hidden></p>
     <p class="muted speak-help" data-speak-novoice hidden>Ezen az eszközön nincs magyar hang, ezért a felolvasás idegen kiejtéssel szól. Windowson: Gépház → Idő és nyelv → Beszéd → Hangok hozzáadása → Magyar (vagy az Edge böngésző, amelyben a Noémi és Tamás hang érhető el). iPhone-on: Beállítások → Kisegítő lehetőségek → Felolvasott tartalom → Hangok → Magyar. Androidon: Beállítások → Szövegfelolvasás → a Google-hangok magyar csomagja.</p>
   </div>
   <script type="application/json" id="speech-text">{{ speech|tojson }}</script>

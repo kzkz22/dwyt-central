@@ -31,7 +31,8 @@ def test_item_page_offers_reading_aloud_only_with_a_summary(alice, anon):
     other = submit(alice, video="abcdefghijk")
     finish(anon, token)
     page = alice.get(f"/elem/{other}").text
-    assert "data-speak hidden" in page and "speak.js" in page  # the script shows it where the browser can speak
+    # the script shows the player where the browser can speak
+    assert "data-speak data-speak-key" in page and "data-speak-seek" in page and "speak.js" in page
     data = re.search(r'<script type="application/json" id="speech-text">(.*?)</script>', page, re.S).group(1)
     assert json.loads(data) == ["A videó a kertről szól, és a metszésről."]
     assert alice.get("/static/speak.js").status_code == 200
