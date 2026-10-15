@@ -205,7 +205,8 @@ def test_report_validation(alice, anon):
 
 def test_new_runner_tabs(alice):
     page = alice.get("/futtatok?ful=asztali").text
-    assert "dwyt-runner[desktop,local]" in page and "dwyt-runner app" in page
+    assert "releases/latest/download/dwyt-runner-setup.exe" in page and "dwyt-runner-x86_64.AppImage" in page
+    assert "dwyt-runner[desktop,local]" in page and "utmutato/windows.md" in page
     page = alice.get("/futtatok?ful=kod").text
     assert "Párosítás kóddal" in page and "Jóváhagyás" in page and "Telepítőparancs kérése" not in page
     page = alice.get("/futtatok").text  # no runner yet: the install command first

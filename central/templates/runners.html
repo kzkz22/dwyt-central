@@ -152,14 +152,17 @@
   <form method="post" action="/futtatok/telepitokod" class="inline"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button>Telepítőparancs kérése</button></form>
   <p class="muted">A parancs {{ install_minutes }} percig érvényes, és egyszer használható.</p>
   {% endif %}
-  <p class="muted">Mit csinál pontosan? <a href="/futtato.sh" target="_blank" rel="noopener">A telepítő szövege</a> (érdemes elolvasni, mielőtt futtatod).</p>
+  <p class="muted">Mit csinál pontosan? <a href="/futtato.sh" target="_blank" rel="noopener">A telepítő szövege</a> (érdemes elolvasni, mielőtt futtatod) · <a href="https://github.com/kzkz22/dwyt-docs/blob/main/docs/utmutato/szerver.md" target="_blank" rel="noopener">Útmutató</a>.</p>
   {% elif active == 'asztali' %}
-  <p>Windowsra és Linuxra asztali alkalmazás: saját ablak, tálcaikon, a telepítő lépései végigvezetnek a beállításon és a párosításon. A telepítőcsomag később jön; addig így telepíthető:</p>
-  <ol>
-    <li>Az uv: <a href="https://docs.astral.sh/uv/getting-started/installation/" target="_blank" rel="noopener">telepítési útmutató</a> (rendszergazdai jog nélkül).</li>
-    <li><code>uv tool install --python 3.13 "dwyt-runner[desktop,local] @ https://github.com/kzkz22/dwyt-runner/archive/refs/heads/main.zip"</code></li>
-    <li><code>dwyt-runner app</code> – az ablak a párosításnál ide hoz vissza, kitöltött kóddal.</li>
-  </ol>
+  <p>Asztali alkalmazás saját ablakkal és tálcaikonnal; az első indításkor végigvezet a beállításon (működési mód, kulcsok, próbafuttatás) és a párosításon. Rendszergazdai jog nem kell.</p>
+  <div class="actions">
+    <a class="button" href="https://github.com/kzkz22/dwyt-runner/releases/latest/download/dwyt-runner-setup.exe">Windows-telepítő letöltése</a>
+    <a class="button secondary" href="https://github.com/kzkz22/dwyt-runner/releases/latest/download/dwyt-runner-x86_64.AppImage">Linux AppImage letöltése</a>
+  </div>
+  <p class="muted">Útmutató: <a href="https://github.com/kzkz22/dwyt-docs/blob/main/docs/utmutato/windows.md" target="_blank" rel="noopener">Windows</a> · <a href="https://github.com/kzkz22/dwyt-docs/blob/main/docs/utmutato/linux-asztal.md" target="_blank" rel="noopener">Linux asztal</a>. A Windows-telepítő még nincs kódaláírással ellátva: a figyelmeztetésnél „További információ” → „Futtatás mindenképp”. A futtató magától frissül, de csak a dwyt projekt kulcsával aláírt kiadásból.</p>
+  <details class="help"><summary>Haladóknak: telepítés uv-vel</summary>
+    <p class="muted"><code>uv tool install --python 3.13 "dwyt-runner[desktop,local] @ https://github.com/kzkz22/dwyt-runner/archive/refs/heads/main.zip"</code>, utána <code>dwyt-runner app</code>.</p>
+  </details>
   {% else %}
   {% if prefill_code %}
   <p class="warn-box">A futtatód kérte ezt a párosítást. <strong>Csak akkor hagyd jóvá, ha a saját gépeden, a futtató ablakában most ugyanez a kód látszik: {{ prefill_code }}</strong>. Ha valaki más küldte neked ezt a linket, ne nyomd meg a gombot: az ő gépe kapná meg a munkáidat.</p>
