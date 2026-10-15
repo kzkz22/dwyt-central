@@ -307,3 +307,22 @@ def test_a_feed_outage_is_not_a_missing_channel(alice, emails, fake_youtube):
     assert rows("SELECT count(*) FROM channels WHERE last_error IS NOT NULL OR failing_since IS NOT NULL")[0][0] == 0
     page = alice.get("/csatornak").text
     assert "nem válaszol" not in page and "ellenőrizve:" in page
+
+
+def test_an_entry_whose_job_disappeared_does_not_stay_in_progress(alice, emails, fake_youtube, anon):
+    fake_youtube.feeds[GARDEN] = [("vid-new-001", "Elveszett videó", iso(-1))]
+    follow(alice, GARDEN)
+    poll()
+    entry = rows("SELECT id FROM inbox_entries")[0][0]
+    assert post(alice, f"/postalada/{entry}/keres").status_code == 303
+    item_id = rows(f"SELECT item_id FROM inbox_entries WHERE id = {entry}")[0][0]
+    assert "Elveszett videó" in alice.get("/postalada?allapot=folyamatban").text
+    assert post(alice, f"/elem/{item_id}/torles").status_code == 303  # the item and its jobs are gone
+    assert rows(f"SELECT state, job_id FROM inbox_entries WHERE id = {entry}")[0] == ("queued", None)
+    assert "Elveszett videó" not in alice.get("/postalada?allapot=folyamatban").text
+    page = alice.get("/postalada?allapot=kihagyott").text
+    assert "Elveszett videó" in page and "A munkája megszűnt" in page and "Újra" in page
+    assert post(alice, f"/postalada/{entry}/keres").status_code == 303  # asked again: a new job
+    assert rows(f"SELECT state FROM inbox_entries WHERE id = {entry}")[0][0] == "queued"
+    token = pair_runner(alice, anon)
+    assert claim(anon, token).json()["input"]["source"]["url"].endswith("vid-new-001")

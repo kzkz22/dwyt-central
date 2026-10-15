@@ -393,9 +393,20 @@ SYNC_SQL = """UPDATE inbox_entries e SET
   FROM jobs j WHERE e.job_id = j.id AND e.state = 'queued' AND j.state IN ('done', 'failed', 'cancelled')"""
 
 
+# A job can disappear under its entry: deleting the item deletes its jobs (and the entry's job_id becomes NULL).
+# Such an entry would stay "in progress" for ever; it is done if the item still has a transcript, else failed
+# (the Kihagyott tab, with an Újra button).
+ORPHAN_SQL = """UPDATE inbox_entries e SET
+    state = CASE WHEN EXISTS (SELECT 1 FROM items i WHERE i.id = e.item_id AND i.main_transcript_id IS NOT NULL)
+                 THEN 'done' ELSE 'failed' END,
+    updated_at = now()
+  WHERE e.state = 'queued' AND e.job_id IS NULL"""
+
+
 def sync_inbox(s: DbSession) -> None:
     """Inbox entries follow their job's end (in a user session: that user's rows only)."""
     s.execute(text(SYNC_SQL))
+    s.execute(text(ORPHAN_SQL))
 
 
 # ---- the chain (called by jobs.fail for subscription jobs) ---------------------------------

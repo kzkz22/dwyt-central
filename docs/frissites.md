@@ -93,6 +93,10 @@ Egyszeri lépések, a fenti frissítés **előtt**:
 3. A téma (világos / sötét) és a becsukott menü böngészőnként tárolódik; először a rendszer témáját követi.
 4. Ha az Apache-on saját `Content-Security-Policy` fejlécet állítottál be, abban is maradjon `default-src 'self'` (a betűtípus és az ikonok a központról jönnek, külső címről semmi).
 
+## Frissítés a 0.16.2-re (beragadt „Folyamatban” videók a postaládában)
+
+Ha egy postaládás videó elemét törölted, amíg a munkája futott vagy várt, a munka is törlődött, a videó viszont a Postaláda *Folyamatban* fülén maradt (a Munkák között nem látszott, újraindítani sem lehetett). A 0.16.2 az ilyen bejegyzést a postaláda következő megnyitásakor (és a háttérben is) rendbe teszi: ha az elemnek van átirata, *Kész*, különben *Kihagyott* „A munkája megszűnt” megjegyzéssel és **Újra** gombbal. A fenti frissítés elég.
+
 ## Frissítés a 0.16.1-re (a működési mód dobozai)
 
 Csak a felület: a futtató Beállítás oldalán a működési módok dobozaiban a leírás tördelődik, nem lóg ki és nem csúszik egymásra. A fenti frissítés elég; a böngészőben semmit nem kell törölni.

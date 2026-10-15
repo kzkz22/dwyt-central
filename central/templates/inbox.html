@@ -27,7 +27,8 @@
       <div class="meta">{{ e.channel.title or e.channel_id }}{% if e.published_at %} · {{ e.published_at|local }}{% endif %}</div>
       {% set j = job_map.get(e.job_id) %}
       {% if j and j.state in ('queued', 'running') %}<div class="meta">{{ job_line(j, now) }}{% if j.state == 'queued' and j.error %} · {{ j.error }}{% endif %}</div>
-      {% elif j and j.state == 'failed' %}<div class="meta error-text">{{ j.error }}</div>{% endif %}
+      {% elif j and j.state == 'failed' %}<div class="meta error-text">{{ j.error }}</div>
+      {% elif e.state == 'failed' and not j %}<div class="meta error-text">A munkája megszűnt (például törölted az elemet). Az Újra gombbal újrakérheted.</div>{% endif %}
       <div class="actions">
         {% if e.state in ('new', 'skipped', 'short', 'failed') %}
         <form method="post" action="/postalada/{{ e.id }}/keres" class="inline">
