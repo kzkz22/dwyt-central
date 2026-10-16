@@ -93,6 +93,13 @@ Egyszeri lépések, a fenti frissítés **előtt**:
 3. A téma (világos / sötét) és a becsukott menü böngészőnként tárolódik; először a rendszer témáját követi.
 4. Ha az Apache-on saját `Content-Security-Policy` fejlécet állítottál be, abban is maradjon `default-src 'self'` (a betűtípus és az ikonok a központról jönnek, külső címről semmi).
 
+## Frissítés a 0.18-ra (oldalak mint forrás)
+
+1. A fenti frissítés; migráció nincs.
+2. Az Új átirat oldalon videós vagy podcastos oldal címe is beküldhető (például Telex, 444, HVG, Index, Indavideo, Facebook-videó). A felvételt a futtató keresi meg az oldalon, ehhez dwyt-runner 0.13 kell (az asztali futtató magától frissül); a régebbi futtató ilyen oldalt nem tud feldolgozni.
+3. A futtató alapból engedélyezett oldalai bővültek. Ha a futtatón kézzel szerkesztetted az `allowed_domains` listát, add hozzá az új oldalakat (Futtatók → Beállítás, vagy `dwyt-runner config set allowed_domains …`), különben az ilyen munkát a központ nem adja neki.
+4. Az elem oldalán „Az oldalról” kártya mutatja, melyik felvételből készült az átirat; ha az oldalon több is van, a többiből „Átírás ebből” új átiratot kér. Az oldal szövege az összefoglalóhoz háttérként megy.
+
 ## Frissítés a 0.17.5-re (próba-modell jelzése)
 
 1. A fenti frissítés; migráció nincs.

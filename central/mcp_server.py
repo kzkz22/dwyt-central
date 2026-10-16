@@ -326,9 +326,8 @@ def atiras_inditasa(url: str | None = None, elem_id: int | None = None,
             ref = sources.parse(url or "")
         except sources.BadUrl as exc:
             raise ToolFailure(str(exc)) from None
-        if options["mode"] == "captions" and ref.kind != "youtube":
-            raise ToolFailure("YouTube-feliratot csak YouTube-videóhoz lehet kérni; válaszd a local vagy a cloud "
-                              "módot.")
+        if options["mode"] == "captions" and not sources.captions_possible(ref):
+            raise ToolFailure(sources.CAPTIONS_ONLY_YOUTUBE)
         from . import ownfiles
         try:
             ownfiles.check_storage(get_settings(), caller.user_id)

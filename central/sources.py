@@ -55,6 +55,20 @@ def parse(url: str) -> SourceRef:
     return SourceRef("url", f"url:{normal}", normal)
 
 
+MEDIA_SUFFIXES = (".mp3", ".m4a", ".aac", ".ogg", ".opus", ".wav", ".flac", ".mp4", ".m4v", ".mkv", ".webm", ".mov",
+                  ".m3u8")
+CAPTIONS_ONLY_YOUTUBE = ("YouTube-feliratot csak YouTube-videóhoz vagy olyan oldalhoz lehet kérni, amelyen "
+                         "YouTube-videó van; hang- vagy videófájlhoz válaszd a helyi vagy a felhős átírást.")
+
+
+def captions_possible(ref: SourceRef) -> bool:
+    """YouTube captions: a YouTube video, or a page that may have one on it (the runner looks, 19.10); never a direct
+    audio/video file."""
+    if ref.kind == "youtube":
+        return True
+    return ref.kind == "url" and not urlsplit(ref.url).path.lower().endswith(MEDIA_SUFFIXES)
+
+
 def host(url: str) -> str:
     return (urlsplit(url).hostname or "").lower()
 

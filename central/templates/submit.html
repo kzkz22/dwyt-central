@@ -8,11 +8,14 @@
   <input type="hidden" name="csrf_token" value="{{ csrf }}">
   {% set src = form.source or 'url' %}
   <fieldset class="sources"><legend>Forrás</legend>
-    <label class="choice"><input type="radio" name="source" value="url" {% if src == 'url' %}checked{% endif %}> Videó URL-je</label>
+    <label class="choice"><input type="radio" name="source" value="url" {% if src == 'url' %}checked{% endif %}> Videó vagy oldal címe</label>
     <label class="choice"><input type="radio" name="source" value="upload" {% if src == 'upload' %}checked{% endif %}> Saját felvétel feltöltése</label>
   </fieldset>
   <div data-for-source="url">
-    <label>Videó URL-je <input name="url" value="{{ form.url or '' }}" placeholder="https://www.youtube.com/watch?v=…"></label>
+    <label>Videó vagy oldal címe <input name="url" value="{{ form.url or '' }}" placeholder="https://www.youtube.com/watch?v=…"></label>
+    <p class="muted">YouTube, vagy egy oldal, amelyen videó vagy podcast van (például Telex, 444, HVG, Index, Indavideo,
+      Facebook-videó). Az oldalon a futtató keresi meg a felvételt; ha YouTube-videót talál, annak a feliratát is
+      használhatja.</p>
   </div>
   <div data-for-source="upload">
     <label>Hang- vagy videófájl (legfeljebb {{ upload_max_mb }} MB) <input type="file" id="upload-file" accept="audio/*,video/*"></label>

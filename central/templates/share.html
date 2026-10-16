@@ -19,7 +19,7 @@
     <input type="hidden" name="csrf_token" value="{{ csrf }}">
     <input type="hidden" name="url" value="{{ ref.url }}"><input type="hidden" name="cim" value="{{ shown_title }}">
     <label>Átírás
-      <select name="mode">{% for key, label in modes.items() %}{% if key != 'captions' or ref.kind == 'youtube' %}<option value="{{ key }}" {% if key == mode %}selected{% endif %}>{{ label }}</option>{% endif %}{% endfor %}</select></label>
+      <select name="mode">{% for key, label in modes.items() %}<option value="{{ key }}" {% if key == mode %}selected{% endif %}>{{ label }}{% if key == 'captions' and ref.kind != 'youtube' %} – ha az oldalon YouTube-videó van{% endif %}</option>{% endfor %}</select></label>
     <label class="choice"><input type="checkbox" name="summarize" checked> Összefoglaló</label>
     {% if ref.kind == 'youtube' %}
     <label class="choice"><input type="checkbox" name="megnezendo"> Megnézendő is (a YouTube-fiókodban)</label>

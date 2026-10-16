@@ -30,10 +30,12 @@
     <div>
       <a class="title" href="/elem/{{ item.id }}">{% if not item.read_at %}<span class="unread-dot" title="olvasatlan"></span><span class="sr-only">Olvasatlan: </span>{% endif %}{{ item_title(item) }}</a>
       <div class="meta">
-        {% if item.source.meta.channel %}{{ item.source.meta.channel }} · {% endif %}
+        {% set from_page = item.source.meta.page if item.source.meta and item.source.meta.page is mapping else none %}
+        {% if from_page and from_page.site %}{{ from_page.site }} · {% endif %}
+        {% if item.source.meta.channel and not (from_page and from_page.site == item.source.meta.channel) %}{{ item.source.meta.channel }} · {% endif %}
         {% if item.source.meta.duration_s %}{{ hms(item.source.meta.duration_s) }} · {% endif %}
         {{ item.created_at|local }}
-        {% if mains.get(item.main_transcript_id) %} · {{ describe_transcript(mains[item.main_transcript_id]) }}{% if mains[item.main_transcript_id].language %} ({{ mains[item.main_transcript_id].language }}){% endif %}{% endif %}
+        {% if mains.get(item.main_transcript_id) %} · {{ describe_transcript(mains[item.main_transcript_id]) }}{% if from_page %}, az oldalról{% endif %}{% if mains[item.main_transcript_id].language %} ({{ mains[item.main_transcript_id].language }}){% endif %}{% endif %}
         {% if item.id in active %}<span class="badge warn">folyamatban</span>{% endif %}
         {% if not item.is_public %}<span class="badge">saját</span>{% endif %}
         {% if vid and vid in watch %}<span class="badge cloud">megnézendő</span>{% endif %}

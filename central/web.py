@@ -621,10 +621,29 @@ _title = library.item_title
 def _thumb(source: Source) -> str | None:
     if source.kind == "youtube":
         return f"https://i.ytimg.com/vi/{source.key.split(':', 1)[1]}/mqdefault.jpg"
+    video_id = (source.meta or {}).get("video_id") if source.kind == "url" else None
+    if isinstance(video_id, str) and watchlater.VIDEO_ID.match(video_id):  # a page resolved to YouTube (19.10)
+        return f"https://i.ytimg.com/vi/{video_id}/mqdefault.jpg"
     return None
 
 
 SOURCE_LABELS = {"youtube": "YouTube", "url": "Weboldal", "upload": "Saját felvétel"}
+
+
+def _page_card(source: Source, main: Transcript | None) -> dict[str, Any] | None:
+    """The "Az oldalról" card (decision 19.10): the recording the main transcript was made from, and the page's other
+    recordings with the mode a new transcript of each would use (captions only where there is a YouTube video)."""
+    page = (source.meta or {}).get("page")
+    if source.kind != "url" or not isinstance(page, dict):
+        return None
+    used = jobs.page_used(source, main.id if main else None)
+    mode = ((main.options if main else None) or {}).get("mode") or "local"
+    others = []
+    for c in page.get("candidates") or []:
+        if not isinstance(c, dict) or not c.get("url") or (used and c.get("url") == used.get("url")):
+            continue
+        others.append({**c, "mode": mode if c.get("kind") == "youtube" or mode != "captions" else "local"})
+    return {"site": page.get("site"), "used": used, "others": others, "has_text": bool(page.get("text"))}
 
 
 def _speaker_request(options: dict[str, Any] | None) -> str:
@@ -851,6 +870,7 @@ def item_page(request: Request, item_id: int, atirat: int | None = None, nezet: 
                    local_models=LOCAL_MODELS, can_rerun=can_rerun, tags=tags, names=names, labels=labels,
                    translated=translated, item_language=item_language,
                    can_translate=bool(chosen and jobs.needs_translation(chosen.language)), **status,
+                   page_card=_page_card(item.source, main),
                    video_id=watchlater.video_of(item), on_watch=watchlater.video_of(item) in watchlater.video_ids(
                        viewer.id), back=_local_back(request), watch_ready=_watch_ready(viewer.id),
                    **_chat_ctx(viewer, item.id, beszelgetes[:20]))
@@ -1145,6 +1165,8 @@ async def retranscribe(request: Request, item_id: int, viewer: Viewer = Depends(
     """A new transcript of the item with other settings (mode, model, language, speakers)."""
     form = {k: str(v) for k, v in (await request.form()).items()}
     options, errors = parse_options(form)
+    if form.get("pick"):  # another recording of the page (19.10); checked against the page's list
+        options["pick"] = form["pick"][:2000]
     make_main = form.get("make_main") == "on"
     summarize = form.get("summarize") == "on"
 
@@ -1859,8 +1881,8 @@ async def share_submit(request: Request, viewer: Viewer = Depends(authed_post)):
         ref = sources.parse(form.get("url", ""))
     except sources.BadUrl as exc:
         errors.append(str(exc))
-    if ref is not None and options.get("mode") == "captions" and ref.kind != "youtube":
-        errors.append("YouTube-feliratot csak YouTube-videóhoz lehet kérni.")
+    if ref is not None and options.get("mode") == "captions" and not sources.captions_possible(ref):
+        errors.append(sources.CAPTIONS_ONLY_YOUTUBE)
     if not errors:
         try:
             await run_in_threadpool(ownfiles.check_storage, get_settings(), viewer.id)
@@ -1916,8 +1938,8 @@ async def submit(request: Request, viewer: Viewer = Depends(authed_post)):
         ref = sources.parse(form.get("url", ""))
     except sources.BadUrl as exc:
         errors.append(str(exc))
-    if ref is not None and options.get("mode") == "captions" and ref.kind != "youtube":
-        errors.append("YouTube-feliratot csak YouTube-videóhoz lehet kérni.")
+    if ref is not None and options.get("mode") == "captions" and not sources.captions_possible(ref):
+        errors.append(sources.CAPTIONS_ONLY_YOUTUBE)
     if not errors:
         try:
             await run_in_threadpool(ownfiles.check_storage, get_settings(), viewer.id)

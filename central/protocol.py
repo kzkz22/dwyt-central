@@ -407,9 +407,28 @@ class VideoIn(BaseModel):
     published: str | None = Field(default=None, max_length=20)
 
 
+class PageMediaIn(BaseModel):
+    kind: Literal["youtube", "player", "dayfile", "podcast", "file"]
+    url: str = Field(max_length=2000, pattern=r"^https?://")
+    label: str = Field(max_length=200)
+    video_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{11}$")
+
+
+class PageIn(BaseModel):
+    """The page a recording was found on (the runner's page resolver, decision 19.10)."""
+    url: str = Field(max_length=2000)
+    title: str | None = Field(default=None, max_length=500)
+    site: str | None = Field(default=None, max_length=200)
+    published: str | None = Field(default=None, max_length=40)
+    text: str | None = Field(default=None, max_length=8000)
+    chosen: PageMediaIn
+    candidates: list[PageMediaIn] = Field(default_factory=list, max_length=10)
+
+
 class TranscribeResult(BaseModel):
     video: VideoIn = Field(default_factory=VideoIn)
     transcript: TranscriptIn
+    page: PageIn | None = None
 
 
 class SummaryResult(BaseModel):

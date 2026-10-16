@@ -102,7 +102,7 @@ def test_starting_tools_need_permission_and_follow_the_rules(alice, anon):
     anon.put(f"/runner/v1/jobs/{job['job_id']}/result", json=transcript_result(), headers=runner_headers(runner))
     again = call(anon, token, "atiras_inditasa", elem_id=started["elem_id"], mod="cloud", fo_atirat=True)
     assert again["structuredContent"]["munka_id"] != started["munka_id"]
-    bad = call(anon, token, "atiras_inditasa", url="https://example.com/x")  # captions only for YouTube
+    bad = call(anon, token, "atiras_inditasa", url="https://example.com/x.mp3")  # no captions for a file
     assert bad["isError"]
     bad = call(anon, token, "atiras_inditasa", url="https://www.youtube.com/watch?v=aaaaaaaaaaa", mod="local",
                modell="tiny")

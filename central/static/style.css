@@ -692,3 +692,17 @@ button.on:hover { background: hsl(var(--primary) / .16); }
 .trial-note { display: flex; gap: 8px; align-items: flex-start; margin: 10px 0 4px; padding: 8px 12px; font-size: .85rem;
   border: 1px solid hsl(var(--warning-line)); background: hsl(var(--warning-bg)); border-radius: 8px; }
 .trial-note .icon { flex-shrink: 0; margin-top: 2px; }
+
+/* 19.10: the recordings the runner found on a page */
+.pagecard h2 { margin-bottom: 6px; }
+.pick { display: flex; gap: 12px; align-items: flex-start; padding: 10px 12px; border: 1px solid hsl(var(--border));
+  border-radius: 10px; margin: 8px 0; }
+.pick > div { min-width: 0; flex: 1; }
+.pick.chosen { border: 2px solid hsl(var(--primary)); background: hsl(var(--primary) / .06); }
+.pick .ph { width: 120px; aspect-ratio: 16 / 9; border-radius: 6px; flex-shrink: 0; object-fit: cover; display: flex;
+  align-items: center; justify-content: center; background: hsl(var(--muted)); color: hsl(var(--muted-foreground)); }
+.pick .what { font-weight: 600; }
+.pick .muted { font-size: .85rem; }
+.pick p { margin: 6px 0 0; }
+.pick-url a { overflow-wrap: anywhere; }
+@media (max-width: 600px) { .pick .ph { width: 80px; } }

@@ -210,7 +210,8 @@ def test_share_page_choices_and_submit(alice, anon):
     r = alice.get("/megosztas", params={"url": f"https://www.youtube.com/watch?v={VIDEO}"})  # already there
     assert r.status_code == 303 and r.headers["location"] == f"/elem/{item_id}"
     web = alice.get("/megosztas", params={"text": "https://example.com/cikk"}).text
-    assert 'value="captions"' not in web and "Megnézendő is" not in web  # a web page: no captions, no playlist
+    assert "Megnézendő is" not in web  # a web page: no playlist; captions only if the page has a YouTube video
+    assert "ha az oldalon YouTube-videó van" in web
     assert alice.get("/megosztas", params={"text": "csak szöveg"}).status_code == 422
 
 

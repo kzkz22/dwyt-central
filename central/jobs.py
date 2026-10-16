@@ -23,7 +23,8 @@ from .models import (Item, ItemSummary, ItemTranscript, ItemTranslation, Job, Ru
 
 RETRY_MINUTES = (1, 5, 15, 60, 180, 360)
 STAGE_LABELS = {
-    None: "", "queued": "Sorban áll", "download": "Letöltés", "captions": "Felirat letöltése",
+    None: "", "queued": "Sorban áll", "page": "Felvétel keresése az oldalon", "download": "Letöltés",
+    "captions": "Felirat letöltése",
     "prepare-audio": "Hang előkészítése", "upload": "Feltöltés a felhőbe", "transcribe": "Átírás",
     "summarize": "Összefoglaló írása", "write": "Mentés", "starting": "Indul",
     "waiting-for-gpu": "Vár a GPU-ra", "load-audio": "Hang betöltése", "align": "Igazítás",
@@ -265,10 +266,12 @@ def _job_input(s: DbSession, job: Job) -> dict[str, Any]:
                 "target": job.payload.get("target", TRANSLATION_TARGET),
                 "meta": {"title": meta.get("title"), "channel": meta.get("channel"), "url": src.url},
                 "segments": [{"idx": g.idx, "text": g.text} for g in t.segments]}
+    page = meta.get("page") if isinstance(meta.get("page"), dict) else {}
+    extra = {"page_text": page["text"]} if page.get("text") else {}
     return {
         **chosen, "role": job.payload["role"], "language": job.payload.get("language", "hu"),
         "meta": {"title": meta.get("title"), "channel": meta.get("channel"),
-                 "duration_s": meta.get("duration_s"), "url": src.url},
+                 "duration_s": meta.get("duration_s"), "url": src.url, **extra},
         "transcript": {"language": t.language, "mode": t.mode, "model": t.model, "caption_kind": t.caption_kind,
                        "diarized": t.diarized, "speakers": [sp.get("label") for sp in (t.speakers or [])],
                        "segments": [{"start": g.start_s, "end": g.end_s, "speaker": g.speaker, "text": g.text}
@@ -334,6 +337,32 @@ def _meta_update(src: Source, video: dict[str, Any]) -> None:
     src.meta, src.updated_at = meta, utcnow()
 
 
+def _page_update(src: Source, transcript_id: int, page: dict[str, Any] | None) -> None:
+    """A page the runner resolved (decision 19.10): the page's words and recordings on the shared source, and which
+    recording each transcript was made from (`used`, by transcript id)."""
+    if not page or src.kind != "url":
+        return
+    meta = dict(src.meta or {})
+    old = meta.get("page") if isinstance(meta.get("page"), dict) else {}
+    chosen = page.get("chosen") or {}
+    used = {**(old.get("used") or {}), str(transcript_id): chosen}
+    meta["page"] = {"title": page.get("title"), "site": page.get("site"), "published": page.get("published"),
+                    "text": page.get("text") or "", "candidates": page.get("candidates") or [], "used": used}
+    if chosen.get("kind") == "youtube" and chosen.get("video_id"):
+        meta["video_id"] = chosen["video_id"]  # the library's picture
+    if not meta.get("published") and page.get("published"):
+        meta["published"] = str(page["published"])[:10]
+    src.meta, src.updated_at = meta, utcnow()
+
+
+def page_used(src: Source, transcript_id: int | None) -> dict[str, Any] | None:
+    """The page recording a transcript was made from (None: not a resolved page)."""
+    page = (src.meta or {}).get("page")
+    if not isinstance(page, dict) or transcript_id is None:
+        return None
+    return (page.get("used") or {}).get(str(transcript_id))
+
+
 def store_transcription(s: DbSession, runner: Runner, job: Job, result: dict[str, Any]) -> Transcript:
     item = s.get(Item, job.item_id)
     if item is None:
@@ -355,6 +384,7 @@ def store_transcription(s: DbSession, runner: Runner, job: Job, result: dict[str
     s.add_all(Segment(transcript_id=t.id, idx=i, start_s=float(g["start"]), end_s=float(g["end"]),
                       speaker=g.get("speaker"), text=str(g["text"])) for i, g in enumerate(segments))
     s.add(ItemTranscript(item_id=item.id, transcript_id=t.id, user_id=job.user_id))
+    _page_update(src, t.id, result.get("page"))
     if item.main_transcript_id is None or job.payload.get("make_main"):
         item.main_transcript_id = t.id
         item.current_translation_id = None  # the old main's translation and summary do not fit any more

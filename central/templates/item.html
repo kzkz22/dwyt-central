@@ -11,7 +11,7 @@
     <h1>{{ item_title(item) }}</h1>
     {% set meta = item.source.meta %}
     <ul class="facts" aria-label="Adatok">
-      <li><span class="fact-k">Forrás</span> {{ source_labels.get(item.source.kind, item.source.kind) }}{% if not item.is_public %} <span class="badge own">saját felvétel</span>{% endif %}</li>
+      <li><span class="fact-k">Forrás</span> {% if page_card and page_card.site %}{{ page_card.site }} (videós oldal){% else %}{{ source_labels.get(item.source.kind, item.source.kind) }}{% endif %}{% if not item.is_public %} <span class="badge own">saját felvétel</span>{% endif %}</li>
       {% if meta.channel %}<li><span class="fact-k">Csatorna</span> {{ meta.channel }}</li>{% endif %}
       {% if meta.duration_s %}<li><span class="fact-k">Hossz</span> {{ hms(meta.duration_s) }}</li>{% endif %}
       {% if meta.published %}<li><span class="fact-k">Megjelent</span> {{ meta.published }}</li>{% endif %}
@@ -33,6 +33,32 @@
     {% if video_id and not watch_ready %}<p class="muted consent-hint">A Megnézendő gomb a YouTube-fiókodban egy <em>dwyt – megnézendő</em> lejátszási listát kezel; az első használatkor a Google-nál engedélyezned kell, hogy a dwyt írhasson a lejátszási listáidba.</p>{% endif %}
   </div>
 </header>
+{% if page_card %}
+<section class="card pagecard" id="oldal">
+  <h2>Az oldalról</h2>
+  <p class="muted">A futtató ezt a felvételt találta az oldalon, ebből készült a fő átirat.{% if page_card.has_text %} Az oldal szövege háttérként az összefoglalóhoz kerül.{% endif %}</p>
+  {% if page_card.used %}{% set u = page_card.used %}
+  <div class="pick chosen">
+    {% if u.video_id %}<img class="ph" src="https://i.ytimg.com/vi/{{ u.video_id }}/mqdefault.jpg" alt="" loading="lazy" referrerpolicy="no-referrer">{% else %}<span class="ph audio" aria-hidden="true">{{ icon("file", 22) }}</span>{% endif %}
+    <div><div class="what">{{ u.label }} <span class="badge cloud">ezt használtuk</span></div>
+      <div class="muted pick-url"><a href="{{ u.url }}" rel="noopener noreferrer" target="_blank">{{ u.url }}</a></div></div>
+  </div>
+  {% endif %}
+  {% if page_card.others %}
+  <details><summary>Más is van az oldalon ({{ page_card.others|length }})</summary>
+    {% for c in page_card.others %}
+    <form method="post" action="/elem/{{ item.id }}/ujrairas" class="pick">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="pick" value="{{ c.url }}"><input type="hidden" name="mode" value="{{ c.mode }}">
+      {% if c.video_id %}<img class="ph" src="https://i.ytimg.com/vi/{{ c.video_id }}/mqdefault.jpg" alt="" loading="lazy" referrerpolicy="no-referrer">{% else %}<span class="ph audio" aria-hidden="true">{{ icon("file", 22) }}</span>{% endif %}
+      <div><div class="what">{{ c.label }}</div>
+        <div class="muted pick-url"><a href="{{ c.url }}" rel="noopener noreferrer" target="_blank">{{ c.url }}</a></div>
+        <p><button class="secondary small">Átírás ebből</button> <span class="muted">{{ modes.get(c.mode, c.mode) }}. Új átirat készül; a mostani megmarad, a fő átiratot te választod.</span></p></div>
+    </form>
+    {% endfor %}
+  </details>
+  {% endif %}
+</section>
+{% endif %}
 <nav class="jump" aria-label="Ugrás az oldalon"><a href="#summary">{{ icon("sparkles", 15) }}Összefoglaló</a><a href="#kerdes">{{ icon("chat", 15) }}Kérdezz</a><a href="#sajat">{{ icon("tag", 15) }}Címkék és jegyzet</a><a href="#atirat">{{ icon("file", 15) }}Átirat</a></nav>
 {% include "_item_status.html" %}
 

@@ -135,8 +135,17 @@ def retranscribe(user_id: int, item_id: int, options: dict[str, Any], make_main:
             s.expunge(item_source)
     if item_source is None:
         return "Nincs ilyen elem."
-    if options.get("mode") == "captions" and item_source.kind != "youtube":
-        return "YouTube-feliratot csak YouTube-videóhoz lehet kérni."
+    as_ref = sources.SourceRef(item_source.kind, item_source.key, item_source.url or "")
+    if options.get("mode") == "captions" and not sources.captions_possible(as_ref):
+        return sources.CAPTIONS_ONLY_YOUTUBE
+    if options.get("pick"):
+        page = (item_source.meta or {}).get("page") if item_source.kind == "url" else None
+        found_pick = next((c for c in ((page or {}).get("candidates") or [])
+                           if isinstance(c, dict) and c.get("url") == options["pick"]), None)
+        if found_pick is None:
+            return "Ez a felvétel nincs az oldal felvételei között."
+        if options.get("mode") == "captions" and found_pick.get("kind") != "youtube":
+            return "YouTube-feliratot csak YouTube-videóhoz lehet kérni; válassz helyi vagy felhős átírást."
     try:
         ownfiles.check_storage(get_settings(), user_id)
     except ownfiles.QuotaError as exc:
